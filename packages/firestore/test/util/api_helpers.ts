@@ -59,6 +59,7 @@ import { JsonObject } from '../../src/model/object_value';
 import { TEST_PROJECT } from '../unit/local/persistence_test_helpers';
 
 import { doc, key, path as pathFrom } from './helpers';
+import {ByteString} from '../../src/util/byte_string';
 
 /**
  * A mock Firestore. Will not work for integration test.
@@ -159,6 +160,7 @@ export function query(path: string): Query {
  * @param mutatedKeys - The list of document with pending writes.
  * @param fromCache - Whether the query snapshot is cache result.
  * @param syncStateChanged - Whether the sync state has changed.
+ * @param resumeToken - The resume token associated with the query.
  * @returns A query snapshot that consists of both sets of documents.
  */
 export function querySnapshot(
@@ -167,7 +169,8 @@ export function querySnapshot(
   docsToAdd: { [key: string]: JsonObject<unknown> },
   mutatedKeys: DocumentKeySet,
   fromCache: boolean,
-  syncStateChanged: boolean
+  syncStateChanged: boolean,
+  resumeToken: ByteString
 ): QuerySnapshot {
   const query: InternalQuery = newQueryForPath(pathFrom(path));
   let oldDocuments: DocumentSet = new DocumentSet();
@@ -189,7 +192,8 @@ export function querySnapshot(
     mutatedKeys,
     fromCache,
     syncStateChanged,
-    false
+    false,
+    resumeToken
   );
   const db = firestore();
   return new QuerySnapshot(

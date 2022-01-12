@@ -28,6 +28,8 @@ import {
   querySnapshot
 } from '../../util/api_helpers';
 import { expectEqual, expectNotEqual, keys } from '../../util/helpers';
+import {ByteString} from '../../../src/util/byte_string';
+import {encodeBase64} from '../../../src/platform/base64';
 
 describe('CollectionReference', () => {
   it('support equality checking with isEqual()', () => {
@@ -101,50 +103,64 @@ describe('Query', () => {
 
 describe('QuerySnapshot', () => {
   it('support equality checking with isEqual()', () => {
+    const resumeToken1 = ByteString.fromBase64String(encodeBase64("ResumeToken1"));
+    const resumeToken1Copy = ByteString.fromBase64String(encodeBase64("ResumeToken1"));
+    const resumeToken2 = ByteString.fromBase64String(encodeBase64("ResumeToken2"));
+
     expectEqual(
-      querySnapshot('foo', {}, { a: { a: 1 } }, keys(), false, false),
-      querySnapshot('foo', {}, { a: { a: 1 } }, keys(), false, false)
+      querySnapshot('foo', {}, { a: { a: 1 } }, keys(), false, false, resumeToken1),
+      querySnapshot('foo', {}, { a: { a: 1 } }, keys(), false, false, resumeToken1)
+    );
+    expectEqual(
+      querySnapshot('foo', {}, { a: { a: 1 } }, keys(), false, false, resumeToken1),
+      querySnapshot('foo', {}, { a: { a: 1 } }, keys(), false, false, resumeToken1Copy)
     );
     expectNotEqual(
-      querySnapshot('foo', {}, { a: { a: 1 } }, keys(), false, false),
-      querySnapshot('bar', {}, { a: { a: 1 } }, keys(), false, false)
+      querySnapshot('foo', {}, { a: { a: 1 } }, keys(), false, false, resumeToken1),
+      querySnapshot('bar', {}, { a: { a: 1 } }, keys(), false, false, resumeToken1)
     );
     expectNotEqual(
-      querySnapshot('foo', {}, { a: { a: 1 } }, keys(), false, false),
+      querySnapshot('foo', {}, { a: { a: 1 } }, keys(), false, false, resumeToken1),
       querySnapshot(
         'foo',
         { b: { b: 1 } },
         { a: { a: 1 } },
         keys(),
         false,
-        false
+        false,
+        resumeToken1
       )
     );
     expectNotEqual(
-      querySnapshot('foo', {}, { a: { a: 1 } }, keys(), false, false),
-      querySnapshot('foo', {}, { a: { b: 1 } }, keys(), false, false)
+      querySnapshot('foo', {}, { a: { a: 1 } }, keys(), false, false, resumeToken1),
+      querySnapshot('foo', {}, { a: { b: 1 } }, keys(), false, false, resumeToken1)
     );
     expectNotEqual(
-      querySnapshot('foo', {}, { a: { a: 1 } }, keys('foo/a'), false, false),
-      querySnapshot('foo', {}, { a: { a: 1 } }, keys(), false, false)
+      querySnapshot('foo', {}, { a: { a: 1 } }, keys('foo/a'), false, false, resumeToken1),
+      querySnapshot('foo', {}, { a: { a: 1 } }, keys(), false, false, resumeToken1)
     );
     expectNotEqual(
-      querySnapshot('foo', {}, { a: { a: 1 } }, keys('foo/a'), false, false),
-      querySnapshot('foo', {}, { a: { a: 1 } }, keys('foo/b'), false, false)
+      querySnapshot('foo', {}, { a: { a: 1 } }, keys('foo/a'), false, false, resumeToken1),
+      querySnapshot('foo', {}, { a: { a: 1 } }, keys('foo/b'), false, false, resumeToken1)
     );
     expectNotEqual(
-      querySnapshot('foo', {}, { a: { a: 1 } }, keys('foo/a'), false, false),
-      querySnapshot('foo', {}, { a: { a: 1 } }, keys('foo/a'), true, false)
+      querySnapshot('foo', {}, { a: { a: 1 } }, keys('foo/a'), false, false, resumeToken1),
+      querySnapshot('foo', {}, { a: { a: 1 } }, keys('foo/a'), true, false, resumeToken1)
     );
     expectNotEqual(
-      querySnapshot('foo', {}, { a: { a: 1 } }, keys('foo/a'), false, false),
-      querySnapshot('foo', {}, { a: { a: 1 } }, keys('foo/a'), false, true)
+      querySnapshot('foo', {}, { a: { a: 1 } }, keys('foo/a'), false, false, resumeToken1),
+      querySnapshot('foo', {}, { a: { a: 1 } }, keys('foo/a'), false, true, resumeToken1)
+    );
+    expectNotEqual(
+      querySnapshot('foo', {}, { a: { a: 1 } }, keys('foo/a'), false, false, resumeToken1),
+      querySnapshot('foo', {}, { a: { a: 1 } }, keys('foo/a'), false, false, resumeToken2),
     );
   });
 
   it('JSON.stringify() does not throw', () => {
+    const resumeToken = ByteString.fromBase64String(encodeBase64("ResumeToken"));
     JSON.stringify(
-      querySnapshot('foo', {}, { a: { a: 1 } }, keys(), false, false)
+      querySnapshot('foo', {}, { a: { a: 1 } }, keys(), false, false, resumeToken)
     );
   });
 });
@@ -162,21 +178,23 @@ describe('SnapshotMetadata', () => {
   });
 
   it('from QuerySnapshot support equality checking with isEqual()', () => {
+    const resumeToken = ByteString.fromBase64String(encodeBase64("ResumeToken"));
+
     expectEqual(
-      querySnapshot('foo', {}, {}, keys('foo/a'), true, false).metadata,
-      querySnapshot('foo', {}, {}, keys('foo/a'), true, false).metadata
+      querySnapshot('foo', {}, {}, keys('foo/a'), true, false, resumeToken).metadata,
+      querySnapshot('foo', {}, {}, keys('foo/a'), true, false, resumeToken).metadata
     );
     expectNotEqual(
-      querySnapshot('foo', {}, {}, keys('foo/a'), true, false).metadata,
-      querySnapshot('foo', {}, {}, keys(), true, false).metadata
+      querySnapshot('foo', {}, {}, keys('foo/a'), true, false, resumeToken).metadata,
+      querySnapshot('foo', {}, {}, keys(), true, false, resumeToken).metadata
     );
     expectNotEqual(
-      querySnapshot('foo', {}, {}, keys('foo/a'), true, false).metadata,
-      querySnapshot('foo', {}, {}, keys('foo/a'), false, false).metadata
+      querySnapshot('foo', {}, {}, keys('foo/a'), true, false, resumeToken).metadata,
+      querySnapshot('foo', {}, {}, keys('foo/a'), false, false, resumeToken).metadata
     );
     expectNotEqual(
-      querySnapshot('foo', {}, {}, keys('foo/a'), true, false).metadata,
-      querySnapshot('foo', {}, {}, keys(), false, false).metadata
+      querySnapshot('foo', {}, {}, keys('foo/a'), true, false, resumeToken).metadata,
+      querySnapshot('foo', {}, {}, keys(), false, false, resumeToken).metadata
     );
   });
 });
