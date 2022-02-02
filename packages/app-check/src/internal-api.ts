@@ -102,7 +102,7 @@ export async function getToken(
   if (isDebugMode()) {
     const tokenFromDebugExchange: AppCheckTokenInternal = await exchangeToken(
       getExchangeDebugTokenRequest(app, await getDebugToken()),
-      appCheck.platformLoggerProvider
+      appCheck.heartbeatServiceProvider
     );
     // Write debug token to indexedDB.
     await writeTokenToStorage(app, tokenFromDebugExchange);

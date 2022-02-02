@@ -40,7 +40,7 @@ import { AppCheckProvider, AppCheckTokenInternal } from './types';
  */
 export class ReCaptchaV3Provider implements AppCheckProvider {
   private _app?: FirebaseApp;
-  private _platformLoggerProvider?: Provider<'platform-logger'>;
+  private _heartbeatServiceProvider?: Provider<'heartbeat'>;
   /**
    * Create a ReCaptchaV3Provider instance.
    * @param siteKey - ReCAPTCHA V3 siteKey.
@@ -53,7 +53,7 @@ export class ReCaptchaV3Provider implements AppCheckProvider {
    */
   async getToken(): Promise<AppCheckTokenInternal> {
     // Top-level `getToken()` has already checked that App Check is initialized
-    // and therefore this._app and this._platformLoggerProvider are available.
+    // and therefore this._app and this._heartbeatServiceProvider are available.
     const attestedClaimsToken = await getReCAPTCHAToken(this._app!).catch(
       _e => {
         // reCaptcha.execute() throws null which is not very descriptive.
@@ -62,7 +62,7 @@ export class ReCaptchaV3Provider implements AppCheckProvider {
     );
     return exchangeToken(
       getExchangeRecaptchaV3TokenRequest(this._app!, attestedClaimsToken),
-      this._platformLoggerProvider!
+      this._heartbeatServiceProvider!
     );
   }
 
@@ -71,7 +71,7 @@ export class ReCaptchaV3Provider implements AppCheckProvider {
    */
   initialize(app: FirebaseApp): void {
     this._app = app;
-    this._platformLoggerProvider = _getProvider(app, 'platform-logger');
+    this._heartbeatServiceProvider = _getProvider(app, 'heartbeat');
     initializeRecaptchaV3(app, this._siteKey).catch(() => {
       /* we don't care about the initialization result */
     });
@@ -97,7 +97,7 @@ export class ReCaptchaV3Provider implements AppCheckProvider {
  */
 export class ReCaptchaEnterpriseProvider implements AppCheckProvider {
   private _app?: FirebaseApp;
-  private _platformLoggerProvider?: Provider<'platform-logger'>;
+  private _heartbeatServiceProvider?: Provider<'heartbeat'>;
   /**
    * Create a ReCaptchaEnterpriseProvider instance.
    * @param siteKey - reCAPTCHA Enterprise score-based site key.
@@ -110,7 +110,7 @@ export class ReCaptchaEnterpriseProvider implements AppCheckProvider {
    */
   async getToken(): Promise<AppCheckTokenInternal> {
     // Top-level `getToken()` has already checked that App Check is initialized
-    // and therefore this._app and this._platformLoggerProvider are available.
+    // and therefore this._app and this._heartbeatServiceProvider are available.
     const attestedClaimsToken = await getReCAPTCHAToken(this._app!).catch(
       _e => {
         // reCaptcha.execute() throws null which is not very descriptive.
@@ -122,7 +122,7 @@ export class ReCaptchaEnterpriseProvider implements AppCheckProvider {
         this._app!,
         attestedClaimsToken
       ),
-      this._platformLoggerProvider!
+      this._heartbeatServiceProvider!
     );
   }
 
@@ -131,7 +131,7 @@ export class ReCaptchaEnterpriseProvider implements AppCheckProvider {
    */
   initialize(app: FirebaseApp): void {
     this._app = app;
-    this._platformLoggerProvider = _getProvider(app, 'platform-logger');
+    this._heartbeatServiceProvider = _getProvider(app, 'heartbeat');
     initializeRecaptchaEnterprise(app, this._siteKey).catch(() => {
       /* we don't care about the initialization result */
     });
