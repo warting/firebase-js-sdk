@@ -269,10 +269,11 @@ export class DbDocumentMutation {
 }
 
 /**
- * A key in the 'remoteDocuments' object store is a string array containing the
- * segments that make up the path.
+ * A key in the 'remoteDocuments' object store is a array containing the
+ * collection path, the collection group, the read time and the document
+ * id.
  */
-export type DbRemoteDocumentKey = string[];
+export type DbRemoteDocumentKey = [string[], string, DbTimestampKey, string];
 
 /**
  * Represents the known absence of a document at a particular version.
@@ -300,6 +301,9 @@ export class DbUnknownDocument {
  * - An "unknown document" representing a document that is known to exist (at
  * some version) but whose contents are unknown.
  *
+ * The document key maps is the concatenation of prefixPath, collectionGroup
+ * and documentId.
+ *
  * Note: This is the persisted equivalent of a MaybeDocument and could perhaps
  * be made more general if necessary.
  */
@@ -316,24 +320,38 @@ export class DbRemoteDocument {
 
   static readTimeIndexPath = 'readTime';
 
+  /** An index that provides access to documents by key. */
+  static documentKeyIndex = 'documentKeyIndex';
+
+  static documentKeyIndexPath = ['prefixPath', 'collectionGroup', 'documentId'];
+
   /**
-   * An index that provides access to documents in a collection sorted by read
+   * An index that provides access to documents by collection group and read
    * time.
    *
-   * This index is used to allow the RemoteDocumentCache to fetch newly changed
-   * documents in a collection.
+   * This index is used by the index backfiller.
    */
-  static collectionReadTimeIndex = 'collectionReadTimeIndex';
+  static collectionGroupIndex = 'documentKeyIndex';
 
-  static collectionReadTimeIndexPath = ['parentPath', 'readTime'];
-
-  // TODO: We are currently storing full document keys almost three times
-  // (once as part of the primary key, once - partly - as `parentPath` and once
-  // inside the encoded documents). During our next migration, we should
-  // rewrite the primary key as parentPath + document ID which would allow us
-  // to drop one value.
+  static collectionGroupIndexPath = [
+    'collectionGroup',
+    'readTime',
+    'documentId'
+  ];
 
   constructor(
+    /** The path to the document's collection (excluding). */
+    public prefixPath: string[],
+
+    /** The collection ID the document is direclty nested under. */
+    public collectionGroup: string,
+
+    /** The document ID. */
+    public documentId: string,
+
+    /** When the document was read from the backend. */
+    public readTime: DbTimestampKey,
+
     /**
      * Set to an instance of DbUnknownDocument if the data for a document is
      * not known, but it is known that a document exists at the specified
@@ -356,19 +374,7 @@ export class DbRemoteDocument {
      * documents are potentially inconsistent with the backend's copy and use
      * the write's commit version as their document version.
      */
-    public hasCommittedMutations: boolean | undefined,
-
-    /**
-     * When the document was read from the backend. Undefined for data written
-     * prior to schema version 9.
-     */
-    public readTime: DbTimestampKey | undefined,
-
-    /**
-     * The path of the collection this document is part of. Undefined for data
-     * written prior to schema version 9.
-     */
-    public parentPath: string[] | undefined
+    public hasCommittedMutations: boolean | undefined
   ) {}
 }
 

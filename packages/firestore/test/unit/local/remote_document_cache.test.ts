@@ -71,7 +71,7 @@ describe('LRU MemoryRemoteDocumentCache', () => {
   lruRemoteDocumentCacheTests(() => cache);
 });
 
-describe('IndexedDbRemoteDocumentCache', () => {
+describe.only('IndexedDbRemoteDocumentCache', () => {
   if (!IndexedDbPersistence.isAvailable()) {
     console.warn('No IndexedDB. Skipping IndexedDbRemoteDocumentCache tests.');
     return;

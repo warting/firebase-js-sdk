@@ -24,6 +24,7 @@ import { ResourcePath } from '../model/path';
 import { PersistencePromise } from './persistence_promise';
 import { PersistenceTransaction } from './persistence_transaction';
 import { RemoteDocumentChangeBuffer } from './remote_document_change_buffer';
+import { IndexOffset } from '../model/field_index';
 
 /**
  * Represents cached documents received from the remote backend.
@@ -61,14 +62,30 @@ export interface RemoteDocumentCache {
    * Returns the documents from the provided collection.
    *
    * @param collection - The collection to read.
-   * @param sinceReadTime - If not set to SnapshotVersion.min(), return only
-   *     documents that have been read since this snapshot version (exclusive).
+   * @param sinceReadTime - The read time and document key to start scanning at
+   * (exclusive).
    * @returns The set of matching documents.
    */
-  getAll(
+  getAllFromCollection(
     transaction: PersistenceTransaction,
     collection: ResourcePath,
-    sinceReadTime: SnapshotVersion
+    offset: IndexOffset
+  ): PersistencePromise<MutableDocumentMap>;
+
+  /**
+   * Looks up the next `limit documents for a collection group based on the
+   * provided offset. The ordering is based on the document's read time and key.
+   *
+   * @param collectionGroup - The collection group to scan.
+   * @param offset - The offset to start the scan at (exclusive).
+   * @param limit - The maximum number of results to return.
+   * @returns The set of matching documents.
+   */
+  getAllFromCollectionGroup(
+    transaction: PersistenceTransaction,
+    collectionGroup: string,
+    offset: IndexOffset,
+    limit: number
   ): PersistencePromise<MutableDocumentMap>;
 
   /**

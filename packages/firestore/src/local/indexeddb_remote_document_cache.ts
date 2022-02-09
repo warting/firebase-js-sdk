@@ -52,6 +52,7 @@ import { PersistenceTransaction } from './persistence_transaction';
 import { RemoteDocumentCache } from './remote_document_cache';
 import { RemoteDocumentChangeBuffer } from './remote_document_change_buffer';
 import { IterateOptions, SimpleDbStore } from './simple_db';
+import { IndexOffset } from '../model/field_index';
 
 export interface DocumentSizeEntry {
   document: MutableDocument;
@@ -61,6 +62,16 @@ export interface DocumentSizeEntry {
 export interface IndexedDbRemoteDocumentCache extends RemoteDocumentCache {
   // The IndexedDbRemoteDocumentCache doesn't implement any methods on top
   // of RemoteDocumentCache. This class exists for consistency.
+}
+
+function toDbDocumentKey(documentKey: DocumentKey) {
+  return [
+    [
+      documentKey.path.popLast().popLast().toArray(),
+      documentKey.path.popLast().lastSegment(),
+      documentKey.path.lastSegment()
+    ]
+  ];
 }
 
 /**
@@ -89,7 +100,7 @@ class IndexedDbRemoteDocumentCacheImpl implements IndexedDbRemoteDocumentCache {
     doc: DbRemoteDocument
   ): PersistencePromise<void> {
     const documentStore = remoteDocumentsStore(transaction);
-    return documentStore.put(dbKey(key), doc);
+    return documentStore.put(doc);
   }
 
   /**
@@ -100,11 +111,16 @@ class IndexedDbRemoteDocumentCacheImpl implements IndexedDbRemoteDocumentCache {
    */
   removeEntry(
     transaction: PersistenceTransaction,
-    documentKey: DocumentKey
+    documentKey: DocumentKey,
+    readTime: SnapshotVersion
   ): PersistencePromise<void> {
     const store = remoteDocumentsStore(transaction);
-    const key = dbKey(documentKey);
-    return store.delete(key);
+    return store.delete([
+      documentKey.path.popLast().popLast().toArray(),
+      documentKey.path.popLast().lastSegment(),
+      toDbTimestampKey(readTime),
+      documentKey.path.lastSegment()
+    ]);
   }
 
   /**
@@ -127,11 +143,18 @@ class IndexedDbRemoteDocumentCacheImpl implements IndexedDbRemoteDocumentCache {
     transaction: PersistenceTransaction,
     documentKey: DocumentKey
   ): PersistencePromise<MutableDocument> {
+    let doc = MutableDocument.newInvalidDocument(documentKey);
     return remoteDocumentsStore(transaction)
-      .get(dbKey(documentKey))
-      .next(dbRemoteDoc => {
-        return this.maybeDecodeDocument(documentKey, dbRemoteDoc);
-      });
+      .iterate(
+        {
+          index: DbRemoteDocument.documentKeyIndex,
+          range: IDBKeyRange.only(toDbDocumentKey(documentKey))
+        },
+        (_, dbRemoteDoc) => {
+          doc = this.maybeDecodeDocument(documentKey, dbRemoteDoc);
+        }
+      )
+      .next(() => doc);
   }
 
   /**
@@ -144,15 +167,24 @@ class IndexedDbRemoteDocumentCacheImpl implements IndexedDbRemoteDocumentCache {
     transaction: PersistenceTransaction,
     documentKey: DocumentKey
   ): PersistencePromise<DocumentSizeEntry> {
+    let result = {
+      size: 0,
+      document: MutableDocument.newInvalidDocument(documentKey)
+    };
     return remoteDocumentsStore(transaction)
-      .get(dbKey(documentKey))
-      .next(dbRemoteDoc => {
-        const doc = this.maybeDecodeDocument(documentKey, dbRemoteDoc);
-        return {
-          document: doc,
-          size: dbDocumentSize(dbRemoteDoc)
-        };
-      });
+      .iterate(
+        {
+          index: DbRemoteDocument.documentKeyIndex,
+          range: IDBKeyRange.only(toDbDocumentKey(documentKey))
+        },
+        (_, dbRemoteDoc) => {
+          result = {
+            document: this.maybeDecodeDocument(documentKey, dbRemoteDoc),
+            size: dbDocumentSize(dbRemoteDoc)
+          };
+        }
+      )
+      .next(() => result);
   }
 
   getEntries(
@@ -206,35 +238,45 @@ class IndexedDbRemoteDocumentCacheImpl implements IndexedDbRemoteDocumentCache {
     }
 
     const range = IDBKeyRange.bound(
-      documentKeys.first()!.path.toArray(),
-      documentKeys.last()!.path.toArray()
+      toDbDocumentKey(documentKeys.first()!),
+      toDbDocumentKey(documentKeys.last()!)
     );
     const keyIter = documentKeys.getIterator();
     let nextKey: DocumentKey | null = keyIter.getNext();
 
     return remoteDocumentsStore(transaction)
-      .iterate({ range }, (potentialKeyRaw, dbRemoteDoc, control) => {
-        const potentialKey = DocumentKey.fromSegments(potentialKeyRaw);
+      .iterate(
+        { index: DbRemoteDocument.documentKeyIndex, range },
+        (_, dbRemoteDoc, control) => {
+          const potentialKey = DocumentKey.fromSegments([
+            ...dbRemoteDoc.prefixPath,
+            dbRemoteDoc.collectionGroup,
+            dbRemoteDoc.documentId
+          ]);
 
-        // Go through keys not found in cache.
-        while (nextKey && DocumentKey.comparator(nextKey!, potentialKey) < 0) {
-          callback(nextKey!, null);
-          nextKey = keyIter.getNext();
-        }
+          // Go through keys not found in cache.
+          while (
+            nextKey &&
+            DocumentKey.comparator(nextKey!, potentialKey) < 0
+          ) {
+            callback(nextKey!, null);
+            nextKey = keyIter.getNext();
+          }
 
-        if (nextKey && nextKey!.isEqual(potentialKey)) {
-          // Key found in cache.
-          callback(nextKey!, dbRemoteDoc);
-          nextKey = keyIter.hasNext() ? keyIter.getNext() : null;
-        }
+          if (nextKey && nextKey!.isEqual(potentialKey)) {
+            // Key found in cache.
+            callback(nextKey!, dbRemoteDoc);
+            nextKey = keyIter.hasNext() ? keyIter.getNext() : null;
+          }
 
-        // Skip to the next key (if there is one).
-        if (nextKey) {
-          control.skip(nextKey!.path.toArray());
-        } else {
-          control.done();
+          // Skip to the next key (if there is one).
+          if (nextKey) {
+            control.skip(nextKey!.path.toArray());
+          } else {
+            control.done();
+          }
         }
-      })
+      )
       .next(() => {
         // The rest of the keys are not in the cache. One case where `iterate`
         // above won't go through them is when the cache is empty.
@@ -245,55 +287,81 @@ class IndexedDbRemoteDocumentCacheImpl implements IndexedDbRemoteDocumentCache {
       });
   }
 
-  getAll(
+  getAllFromCollection(
     transaction: PersistenceTransaction,
     collection: ResourcePath,
-    sinceReadTime: SnapshotVersion
+    offset: IndexOffset
   ): PersistencePromise<MutableDocumentMap> {
-    let results = mutableDocumentMap();
-
-    const immediateChildrenPathLength = collection.length + 1;
-
-    const iterationOptions: IterateOptions = {};
-    if (sinceReadTime.isEqual(SnapshotVersion.min())) {
-      // Documents are ordered by key, so we can use a prefix scan to narrow
-      // down the documents we need to match the query against.
-      const startKey = collection.toArray();
-      iterationOptions.range = IDBKeyRange.lowerBound(startKey);
-    } else {
-      // Execute an index-free query and filter by read time. This is safe
-      // since all document changes to queries that have a
-      // lastLimboFreeSnapshotVersion (`sinceReadTime`) have a read time set.
-      const collectionKey = collection.toArray();
-      const readTimeKey = toDbTimestampKey(sinceReadTime);
-      iterationOptions.range = IDBKeyRange.lowerBound(
-        [collectionKey, readTimeKey],
-        /* open= */ true
-      );
-      iterationOptions.index = DbRemoteDocument.collectionReadTimeIndex;
-    }
-
+    const startKey = [
+      collection.popLast().toArray(),
+      collection.lastSegment(),
+      toDbTimestampKey(offset.readTime),
+      offset.documentKey.path.lastSegment()
+    ];
+    const endKey = [
+      collection.popLast().toArray(),
+      collection.lastSegment(),
+      [Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER],
+      ''
+    ];
     return remoteDocumentsStore(transaction)
-      .iterate(iterationOptions, (key, dbRemoteDoc, control) => {
-        // The query is actually returning any path that starts with the query
-        // path prefix which may include documents in subcollections. For
-        // example, a query on 'rooms' will return rooms/abc/messages/xyx but we
-        // shouldn't match it. Fix this by discarding rows with document keys
-        // more than one segment longer than the query path.
-        if (key.length !== immediateChildrenPathLength) {
-          return;
-        }
-
-        const document = this.maybeDecodeDocument(
-          DocumentKey.fromSegments(key),
-          dbRemoteDoc
-        );
-        if (collection.isPrefixOf(document.key.path)) {
+      .loadAll(IDBKeyRange.bound(startKey, endKey, true, true))
+      .next(dbRemoteDocs => {
+        let results = mutableDocumentMap();
+        for (const dbRemoteDoc of dbRemoteDocs) {
+          const document = this.maybeDecodeDocument(
+            DocumentKey.fromSegments([
+              ...dbRemoteDoc.prefixPath,
+              dbRemoteDoc.collectionGroup,
+              dbRemoteDoc.documentId
+            ]),
+            dbRemoteDoc
+          );
           results = results.insert(document.key, document);
-        } else {
-          control.done();
         }
-      })
+        return results;
+      });
+  }
+
+  getAllFromCollectionGroup(
+    transaction: PersistenceTransaction,
+    collectionGroup: string,
+    offset: IndexOffset,
+    limit: number
+  ): PersistencePromise<MutableDocumentMap> {
+    debugAssert(limit > 0, 'Limit should be at least 1');
+    const startKey = [
+      collectionGroup,
+      toDbTimestampKey(offset.readTime),
+      offset.documentKey.path.lastSegment()
+    ];
+    const endKey = [
+      collectionGroup,
+      [Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER],
+      ''
+    ];
+    let results = mutableDocumentMap();
+    return remoteDocumentsStore(transaction)
+      .iterate(
+        {
+          index: DbRemoteDocument.collectionGroupIndex,
+          range: IDBKeyRange.bound(startKey, endKey, true, true)
+        },
+        (_, dbRemoteDoc, control) => {
+          const document = this.maybeDecodeDocument(
+            DocumentKey.fromSegments([
+              ...dbRemoteDoc.prefixPath,
+              dbRemoteDoc.collectionGroup,
+              dbRemoteDoc.documentId
+            ]),
+            dbRemoteDoc
+          );
+          results = results.insert(document.key, document);
+          if (results.size > limit) {
+            control.done();
+          }
+        }
+      )
       .next(() => results);
   }
 
@@ -443,7 +511,10 @@ export function remoteDocumentCacheGetLastReadTime(
  */
 class IndexedDbRemoteDocumentChangeBuffer extends RemoteDocumentChangeBuffer {
   // A map of document sizes prior to applying the changes in this buffer.
-  protected documentSizes: ObjectMap<DocumentKey, number> = new ObjectMap(
+  protected documentState: ObjectMap<
+    DocumentKey,
+    { size: number; readTime: SnapshotVersion }
+  > = new ObjectMap(
     key => key.toString(),
     (l, r) => l.isEqual(r)
   );
@@ -472,9 +543,9 @@ class IndexedDbRemoteDocumentChangeBuffer extends RemoteDocumentChangeBuffer {
     );
 
     this.changes.forEach((key, documentChange) => {
-      const previousSize = this.documentSizes.get(key);
+      const previousDoc = this.documentState.get(key);
       debugAssert(
-        previousSize !== undefined,
+        previousDoc !== undefined,
         `Cannot modify a document that wasn't read (for ${key})`
       );
       if (documentChange.isValidDocument()) {
@@ -489,10 +560,10 @@ class IndexedDbRemoteDocumentChangeBuffer extends RemoteDocumentChangeBuffer {
         collectionParents = collectionParents.add(key.path.popLast());
 
         const size = dbDocumentSize(doc);
-        sizeDelta += size - previousSize!;
+        sizeDelta += size - previousDoc.size;
         promises.push(this.documentCache.addEntry(transaction, key, doc));
       } else {
-        sizeDelta -= previousSize!;
+        sizeDelta -= previousDoc.size;
         if (this.trackRemovals) {
           // In order to track removals, we store a "sentinel delete" in the
           // RemoteDocumentCache. This entry is represented by a NoDocument
@@ -506,7 +577,13 @@ class IndexedDbRemoteDocumentChangeBuffer extends RemoteDocumentChangeBuffer {
             this.documentCache.addEntry(transaction, key, deletedDoc)
           );
         } else {
-          promises.push(this.documentCache.removeEntry(transaction, key));
+          promises.push(
+            this.documentCache.removeEntry(
+              transaction,
+              key,
+              previousDoc.readTime
+            )
+          );
         }
       }
     });
@@ -533,7 +610,10 @@ class IndexedDbRemoteDocumentChangeBuffer extends RemoteDocumentChangeBuffer {
     return this.documentCache
       .getSizedEntry(transaction, documentKey)
       .next(getResult => {
-        this.documentSizes.set(documentKey, getResult.size);
+        this.documentState.set(documentKey, {
+          size: getResult.size,
+          readTime: getResult.document.readTime
+        });
         return getResult.document;
       });
   }
@@ -551,7 +631,10 @@ class IndexedDbRemoteDocumentChangeBuffer extends RemoteDocumentChangeBuffer {
         // keys to `DocumentSizeEntry`s. This is to allow returning the
         // `MutableDocumentMap` directly, without a conversion.
         sizeMap.forEach((documentKey, size) => {
-          this.documentSizes.set(documentKey, size);
+          this.documentState.set(documentKey, {
+            size: size,
+            readTime: documents.get(documentKey)!.readTime
+          });
         });
         return documents;
       });
@@ -577,8 +660,4 @@ function remoteDocumentsStore(
     txn,
     DbRemoteDocument.store
   );
-}
-
-function dbKey(docKey: DocumentKey): DbRemoteDocumentKey {
-  return docKey.path.toArray();
 }

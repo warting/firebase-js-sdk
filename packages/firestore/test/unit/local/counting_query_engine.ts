@@ -94,7 +94,7 @@ export class CountingQueryEngine extends QueryEngine {
     return {
       getAll: (transaction, collectionGroup, sinceReadTime) => {
         return subject
-          .getAll(transaction, collectionGroup, sinceReadTime)
+          .getAllFromCollection(transaction, collectionGroup, sinceReadTime)
           .next(result => {
             this.documentsReadByCollection += result.size;
             return result;

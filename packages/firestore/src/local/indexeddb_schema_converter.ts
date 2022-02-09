@@ -143,7 +143,7 @@ export class SchemaConverter implements SimpleDbSchemaConverter {
     }
 
     if (fromVersion < 7 && toVersion >= 7) {
-      p = p.next(() => this.ensureSequenceNumbers(simpleDbTransaction));
+      // No longer used
     }
 
     if (fromVersion < 8 && toVersion >= 8) {
@@ -240,60 +240,6 @@ export class SchemaConverter implements SimpleDbSchemaConverter {
     });
   }
 
-  /**
-   * Ensures that every document in the remote document cache has a corresponding sentinel row
-   * with a sequence number. Missing rows are given the most recently used sequence number.
-   */
-  private ensureSequenceNumbers(
-    txn: SimpleDbTransaction
-  ): PersistencePromise<void> {
-    const documentTargetStore = txn.store<
-      DbTargetDocumentKey,
-      DbTargetDocument
-    >(DbTargetDocument.store);
-    const documentsStore = txn.store<DbRemoteDocumentKey, DbRemoteDocument>(
-      DbRemoteDocument.store
-    );
-    const globalTargetStore = txn.store<DbTargetGlobalKey, DbTargetGlobal>(
-      DbTargetGlobal.store
-    );
-
-    return globalTargetStore.get(DbTargetGlobal.key).next(metadata => {
-      debugAssert(
-        !!metadata,
-        'Metadata should have been written during the version 3 migration'
-      );
-      const writeSentinelKey = (
-        path: ResourcePath
-      ): PersistencePromise<void> => {
-        return documentTargetStore.put(
-          new DbTargetDocument(
-            0,
-            encodeResourcePath(path),
-            metadata!.highestListenSequenceNumber!
-          )
-        );
-      };
-
-      const promises: Array<PersistencePromise<void>> = [];
-      return documentsStore
-        .iterate((key, doc) => {
-          const path = new ResourcePath(key);
-          const docSentinelKey = sentinelKey(path);
-          promises.push(
-            documentTargetStore.get(docSentinelKey).next(maybeSentinel => {
-              if (!maybeSentinel) {
-                return writeSentinelKey(path);
-              } else {
-                return PersistencePromise.resolve();
-              }
-            })
-          );
-        })
-        .next(() => PersistencePromise.waitFor(promises));
-    });
-  }
-
   private createCollectionParentIndex(
     db: IDBDatabase,
     txn: SimpleDbTransaction
@@ -323,16 +269,8 @@ export class SchemaConverter implements SimpleDbSchemaConverter {
       }
     };
 
-    // Index existing remote documents.
+    // Index existing remote mutations.
     return txn
-      .store<DbRemoteDocumentKey, DbRemoteDocument>(DbRemoteDocument.store)
-      .iterate({ keysOnly: true }, (pathSegments, _) => {
-        const path = new ResourcePath(pathSegments);
-        return addEntry(path.popLast());
-      })
-      .next(() => {
-        // Index existing mutations.
-        return txn
           .store<DbDocumentMutationKey, DbDocumentMutation>(
             DbDocumentMutation.store
           )
@@ -340,7 +278,6 @@ export class SchemaConverter implements SimpleDbSchemaConverter {
             const path = decodeResourcePath(encodedPath);
             return addEntry(path.popLast());
           });
-      });
   }
 
   private rewriteCanonicalIds(
@@ -491,9 +428,12 @@ function createRemoteDocumentReadTimeIndex(txn: IDBTransaction): void {
     { unique: false }
   );
   remoteDocumentStore.createIndex(
-    DbRemoteDocument.collectionReadTimeIndex,
-    DbRemoteDocument.collectionReadTimeIndexPath,
-    { unique: false }
+    DbRemoteDocument.collectionGroupIndex,
+    DbRemoteDocument.collectionGroupIndexPath,
+  );
+  remoteDocumentStore.createIndex(
+    DbRemoteDocument.documentKeyIndex,
+    DbRemoteDocument.documentKeyIndexPath,
   );
 }
 
