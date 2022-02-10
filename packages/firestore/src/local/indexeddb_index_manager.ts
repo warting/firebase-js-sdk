@@ -46,7 +46,8 @@ import { debugAssert, fail } from '../util/assert';
 import { immediateSuccessor } from '../util/misc';
 
 import {
-  decodeResourcePath, EncodedResourcePath,
+  decodeResourcePath,
+  EncodedResourcePath,
   encodeResourcePath
 } from './encoded_resource_path';
 import { IndexManager } from './index_manager';
@@ -76,7 +77,9 @@ import { Document } from '../model/document';
 import { IndexByteEncoder } from '../index/index_byte_encoder';
 import { FirestoreIndexValueWriter } from '../index/firestore_index_value_writer';
 import { isArray } from '../model/values';
-import {DocumentKey} from "../model/document_key";
+import { DocumentKey } from '../model/document_key';
+import { fieldIndex } from '../../test/util/helpers';
+import { TargetIndexMatcher } from '../model/target_index_matcher';
 
 const LOG_TAG = 'IndexedDbIndexManager';
 
@@ -218,65 +221,70 @@ export class IndexedDbIndexManager implements IndexManager {
     target: Target
   ): PersistencePromise<DocumentKeySet> {
     const indexEntries = indexEntriesStore(transaction);
+    const indexRanges: IDBKeyRange[] = [];
+    return PersistencePromise.forEach(
+      this.getSubTargets(target),
+      (subTarget: Target) => {
+        return this.getFieldIndex(transaction, subTarget).next(fieldIndex => {
+          if (!fieldIndex) throw new Error('unexpected');
 
-    let result = documentKeySet();
-    const persistentPromises : PersistencePromise<void>[] = [];
-    for (const subTarget of this.getSubTargets(target)) {
-      const fieldIndex = this.getFieldIndex(subTarget);
-      const arrayValues = targetGetArrayValues(subTarget, fieldIndex);
-      const notInValues = targetGetNotInValues(subTarget, fieldIndex);
-      const lowerBound = targetGetLowerBound(subTarget, fieldIndex);
-      const upperBound = targetGetUpperBound(subTarget, fieldIndex);
+          const arrayValues = targetGetArrayValues(subTarget, fieldIndex);
+          const notInValues = targetGetNotInValues(subTarget, fieldIndex);
+          const lowerBound = targetGetLowerBound(subTarget, fieldIndex);
+          const upperBound = targetGetUpperBound(subTarget, fieldIndex);
 
-      logDebug(
-        LOG_TAG,
-        "Using index '%s' to execute '%s' (Arrays: %s, Lower bound: %s, Upper bound: %s)",
-        fieldIndex,
-        subTarget,
-        arrayValues,
-        lowerBound,
-        upperBound
-      );
+          logDebug(
+            LOG_TAG,
+            "Using index '%s' to execute '%s' (Arrays: %s, Lower bound: %s, Upper bound: %s)",
+            fieldIndex,
+            subTarget,
+            arrayValues,
+            lowerBound,
+            upperBound
+          );
 
-      const lowerBoundEncoded = this.encodeBound(
-        fieldIndex,
-        subTarget,
-        lowerBound
-      );
-      const upperBoundEncoded = this.encodeBound(
-        fieldIndex,
-        subTarget,
-        upperBound
-      );
-      const notInEncoded = this.encodeValues(
-        fieldIndex,
-        subTarget,
-        notInValues
-      );
+          const lowerBoundEncoded = this.encodeBound(
+            fieldIndex,
+            subTarget,
+            lowerBound
+          );
+          const upperBoundEncoded = this.encodeBound(
+            fieldIndex,
+            subTarget,
+            upperBound
+          );
+          // const notInEncoded = this.encodeValues(
+          //   fieldIndex,
+          //   subTarget,
+          //   notInValues
+          // );
 
-      const indexRanges = this.generateIDBRanges(
-        subTarget,
-        fieldIndex.getIndexId(),
-        arrayValues,
-        lowerBoundEncoded,
-        lowerBound.inclusive,
-        upperBoundEncoded,
-        upperBound?.inclusive,
-        notInEncoded
-      );
-
-      for (const indexRange of indexRanges) {
-        persistentPromises.push(indexEntries.loadAll(indexRange).next(entries => {
-          entries.forEach(entry => {
-            result = result.add(DocumentKey.fromName(decodeResourcePath(entry.documentKey)));
-          });
-        }));
+          indexRanges.push(
+            ...this.generateIDBRanges(
+              fieldIndex.indexId,
+              arrayValues,
+              lowerBoundEncoded,
+              !!lowerBound && lowerBound.inclusive,
+              upperBoundEncoded,
+              !!upperBound && upperBound.inclusive
+            )
+          );
+        });
       }
-    }
-
-    return PersistencePromise.waitFor(persistentPromises).next(() => {
-      logDebug(LOG_TAG, "Index scan returned %s documents", result.size());
-      return result;
+    ).next(() => {
+      let result = documentKeySet();
+      return PersistencePromise.forEach(
+        indexRanges,
+        (indexRange: IDBKeyRange) => {
+          return indexEntries.loadAll(indexRange).next(entries => {
+            entries.forEach(entry => {
+              result = result.add(
+                new DocumentKey(decodeResourcePath(entry.documentKey))
+              );
+            });
+          });
+        }
+      ).next(() => result);
     });
   }
 
@@ -298,14 +306,12 @@ export class IndexedDbIndexManager implements IndexManager {
 
   /** Constructs a key range query on 'index_entries' that unions all bounds.  */
   private generateIDBRanges(
-    target: Target,
     indexId: number,
-    arrayValues: ProtoValue[],
-    lowerBounds: unknown[],
+    arrayValues: ProtoValue[] | null,
+    lowerBounds: unknown[] | null,
     lowerBoundInclusive: boolean,
-    upperBounds: unknown[] | undefined,
-    upperBoundInclusive: boolean,
-    notIn: unknown[] | undefined
+    upperBounds: unknown[] | null,
+    upperBoundInclusive: boolean
   ): IDBKeyRange[] {
     // The number of total index scans we union together. This is similar to a
     // distributed normal form, but adapted for array values. We create a single
@@ -330,13 +336,13 @@ export class IndexedDbIndexManager implements IndexManager {
             [
               indexId,
               this.uid,
-              arrayValues[i / indexRangesPerArrayValue],
+              arrayValues ? arrayValues[i / indexRangesPerArrayValue] : [],
               lowerBounds[i % indexRangesPerArrayValue]
             ],
             [
               indexId,
               this.uid,
-              arrayValues[i / indexRangesPerArrayValue],
+              arrayValues ? arrayValues[i / indexRangesPerArrayValue] : [],
               upperBounds[i % indexRangesPerArrayValue]
             ],
             !lowerBoundInclusive,
@@ -349,7 +355,7 @@ export class IndexedDbIndexManager implements IndexManager {
             [
               indexId,
               this.uid,
-              arrayValues[i / indexRangesPerArrayValue],
+              arrayValues ? arrayValues[i / indexRangesPerArrayValue] : [],
               lowerBounds[i % indexRangesPerArrayValue]
             ],
             !lowerBoundInclusive
@@ -361,7 +367,7 @@ export class IndexedDbIndexManager implements IndexManager {
             [
               indexId,
               this.uid,
-              arrayValues[i / indexRangesPerArrayValue],
+              arrayValues ? arrayValues[i / indexRangesPerArrayValue] : [],
               upperBounds[i % indexRangesPerArrayValue]
             ],
             !upperBoundInclusive
@@ -525,12 +531,6 @@ export class IndexedDbIndexManager implements IndexManager {
       }
     }
     return false;
-  }
-
-  private encodeSegments(fieldIndex: FieldIndex): Uint8Array {
-    return serializer
-      .encodeFieldIndexSegments(fieldIndex.getSegments())
-      .toByteArray();
   }
 
   getFieldIndexes(
