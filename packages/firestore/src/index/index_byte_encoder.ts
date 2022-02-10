@@ -18,6 +18,7 @@ import { ByteString } from '../util/byte_string';
 
 import { DirectionalIndexByteEncoder } from './directional_index_byte_encoder';
 import { OrderedCodeWriter } from './ordered_code_writer';
+import { IndexKind } from '../model/field_index';
 
 class AscendingIndexByteEncoder implements DirectionalIndexByteEncoder {
   constructor(private orderedCode: OrderedCodeWriter) {}
@@ -69,8 +70,8 @@ export class IndexByteEncoder {
     this.orderedCode.seed(encodedBytes);
   }
 
-  forKind(kind: 'asc' | 'desc'): DirectionalIndexByteEncoder {
-    return kind === 'asc' ? this.ascending : this.descending;
+  forKind(kind: IndexKind): DirectionalIndexByteEncoder {
+    return kind === IndexKind.ASCENDING ? this.ascending : this.descending;
   }
 
   encodedBytes(): Uint8Array {

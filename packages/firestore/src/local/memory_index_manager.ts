@@ -71,7 +71,6 @@ export class MemoryIndexManager implements IndexManager {
 
   getDocumentsMatchingTarget(
     transaction: PersistenceTransaction,
-    fieldIndex: FieldIndex,
     target: Target
   ): PersistencePromise<DocumentKeySet> {
     // Field indices are not supported with memory persistence.

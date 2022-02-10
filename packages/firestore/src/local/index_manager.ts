@@ -107,7 +107,6 @@ export interface IndexManager {
    */
   getDocumentsMatchingTarget(
     transaction: PersistenceTransaction,
-    fieldIndex: FieldIndex,
     target: Target
   ): PersistencePromise<DocumentKeySet>;
 
