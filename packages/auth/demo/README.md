@@ -44,6 +44,7 @@ in the `config.js` file.
 
 Before deploying, you may need to build the auth package:
 ```bash
+yarn
 yarn build:deps
 ```
 
@@ -57,6 +58,20 @@ yarn run demo
 
 This will compile all the files needed to run Firebase Auth, and start a Firebase server locally at
 [http://localhost:5000](http://localhost:5000).
+
+The demo opens a page like this:
+
+![image](https://user-images.githubusercontent.com/35932340/153662957-41ba6a82-ea15-4084-ad3a-9fd41083efd3.png)
+
+
+This is a developer view of all the supported auth flows. Make sure that the auth flow you are testing is already enabled in your firebase project.
+For example, if you are testing “Sign up with email/password”, your project should allow email/password as a provider. 
+If not, you will see an “auth/operation-not-allowed” error message. 
+
+You can check the enabled providers on the firebase console.
+
+![image](https://user-images.githubusercontent.com/35932340/153662750-c0faf417-07b4-4f0e-93ab-5e0b82e3c793.png)
+
 
 ## Running against Auth Emulator
 
@@ -73,4 +88,44 @@ The demo page by default runs against the actual Auth Backend. To run against th
 ```bash
 yarn run demo:emulator
 ```
+
+## Troubleshooting
+
+### Errors about dependency not being installed, example `lerna: command not found`
+  
+  Ensure that you run `yarn` to install dependencies.
+
+### `Failed to get Firebase project <project name>. Please make sure the project exists and your account has permission to access it.`
+
+
+Logout, re-login and launch the demo
+
+```bash
+firebase logout && firebase login && yarn demo
+```
+
+### `Access to localhost was denied` when accessing the demo app via http://localhost:5000
+
+
+
+Access the demo app via http://127.0.0.1:5000 or run
+
+```bash
+ yarn demo  --project <project name> --host 127.0.0.1
+```
+and access via http://127.0.0.1:5000
+
+Note - If you use 127.0.0.1 in your browser, you need to allowlist it as a domain for sign in, as shown below.
+
+![image](https://user-images.githubusercontent.com/35932340/153659058-d669055f-b587-4bc2-9f32-323149df50c3.png)
+
+
+### Error message about functions
+
+`The Cloud Functions emulator requires the module "firebase-admin" to be installed. This package is in your package.json, but it's not available. You probably need to run "npm install" in your functions directory.
+i  functions: Your functions could not be parsed due to an issue with your node_modules (see above)
+`
+
+Run `npm install` inside the auth/demo/functions directory as mentioned in the error message.
+
 
