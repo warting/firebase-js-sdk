@@ -64,13 +64,13 @@ import {
 import { debugAssert, debugCast, fail, hardAssert } from '../util/assert';
 import { wrapInUserErrorIfRecoverable } from '../util/async_queue';
 import { BundleReader } from '../util/bundle_reader';
+import { ByteString } from '../util/byte_string';
 import { Code, FirestoreError } from '../util/error';
 import { logDebug, logWarn } from '../util/log';
 import { primitiveComparator } from '../util/misc';
 import { ObjectMap } from '../util/obj_map';
 import { Deferred } from '../util/promise';
 import { SortedMap } from '../util/sorted_map';
-import { SortedSet } from '../util/sorted_set';
 import { BATCHID_UNKNOWN } from '../util/types';
 
 import {
@@ -292,11 +292,11 @@ export function newSyncEngine(
  */
 export async function syncEngineListen(
   syncEngine: SyncEngine,
-  query: Query
+  query: Query,
+  shouldListenToRemote: boolean = true
 ): Promise<ViewSnapshot> {
   const syncEngineImpl = ensureWatchCallbacks(syncEngine);
 
-  let targetId;
   let viewSnapshot;
 
   const queryView = syncEngineImpl.queryViewsByQuery.get(query);
@@ -307,28 +307,69 @@ export async function syncEngineListen(
     // behalf of another tab and the user of the primary also starts listening
     // to the query. EventManager will not have an assigned target ID in this
     // case and calls `listen` to obtain this ID.
-    targetId = queryView.targetId;
-    syncEngineImpl.sharedClientState.addLocalQueryTarget(targetId);
+    syncEngineImpl.sharedClientState.addLocalQueryTarget(queryView.targetId);
     viewSnapshot = queryView.view.computeInitialSnapshot();
   } else {
-    const targetData = await localStoreAllocateTarget(
-      syncEngineImpl.localStore,
-      queryToTarget(query)
+    viewSnapshot = await allocateTargetAndMaybeListen(
+      syncEngineImpl,
+      query,
+      shouldListenToRemote,
+      /** shouldInitializeView= */ true
     );
-    if (syncEngineImpl.isPrimaryClient) {
-      remoteStoreListen(syncEngineImpl.remoteStore, targetData);
-    }
+    debugAssert(!!viewSnapshot, 'viewSnapshot is not initialized');
+  }
 
-    const status = syncEngineImpl.sharedClientState.addLocalQueryTarget(
-      targetData.targetId
-    );
-    targetId = targetData.targetId;
+  return viewSnapshot;
+}
+
+/** Query has been listening to the cache, and tries to initiate the remote store listen */
+export async function triggerRemoteStoreListen(
+  syncEngine: SyncEngine,
+  query: Query
+): Promise<void> {
+  const syncEngineImpl = ensureWatchCallbacks(syncEngine);
+  await allocateTargetAndMaybeListen(
+    syncEngineImpl,
+    query,
+    /** shouldListenToRemote= */ true,
+    /** shouldInitializeView= */ false
+  );
+}
+
+async function allocateTargetAndMaybeListen(
+  syncEngineImpl: SyncEngineImpl,
+  query: Query,
+  shouldListenToRemote: boolean,
+  shouldInitializeView: boolean
+): Promise<ViewSnapshot | undefined> {
+  const targetData = await localStoreAllocateTarget(
+    syncEngineImpl.localStore,
+    queryToTarget(query)
+  );
+
+  const targetId = targetData.targetId;
+
+  // PORTING NOTE: When the query is listening to cache only, we skip sending it over to Watch by
+  // not registering it in shared client state, and directly calculate initial snapshots and
+  // subsequent updates from cache. Otherwise, register the target ID with local Firestore client
+  // as active watch target.
+  const status: QueryTargetState = shouldListenToRemote
+    ? syncEngineImpl.sharedClientState.addLocalQueryTarget(targetId)
+    : 'not-current';
+
+  let viewSnapshot;
+  if (shouldInitializeView) {
     viewSnapshot = await initializeViewAndComputeSnapshot(
       syncEngineImpl,
       query,
       targetId,
-      status === 'current'
+      status === 'current',
+      targetData.resumeToken
     );
+  }
+
+  if (syncEngineImpl.isPrimaryClient && shouldListenToRemote) {
+    remoteStoreListen(syncEngineImpl.remoteStore, targetData);
   }
 
   return viewSnapshot;
@@ -342,7 +383,8 @@ async function initializeViewAndComputeSnapshot(
   syncEngineImpl: SyncEngineImpl,
   query: Query,
   targetId: TargetId,
-  current: boolean
+  current: boolean,
+  resumeToken: ByteString
 ): Promise<ViewSnapshot> {
   // PORTING NOTE: On Web only, we inject the code that registers new Limbo
   // targets based on view changes. This allows us to only depend on Limbo
@@ -360,11 +402,12 @@ async function initializeViewAndComputeSnapshot(
   const synthesizedTargetChange =
     TargetChange.createSynthesizedTargetChangeForCurrentChange(
       targetId,
-      current && syncEngineImpl.onlineState !== OnlineState.Offline
+      current && syncEngineImpl.onlineState !== OnlineState.Offline,
+      resumeToken
     );
   const viewChange = view.applyChanges(
     viewDocChanges,
-    /* updateLimboDocuments= */ syncEngineImpl.isPrimaryClient,
+    /* limboResolutionEnabled= */ syncEngineImpl.isPrimaryClient,
     synthesizedTargetChange
   );
   updateTrackedLimbos(syncEngineImpl, targetId, viewChange.limboChanges);
@@ -389,7 +432,8 @@ async function initializeViewAndComputeSnapshot(
 /** Stops listening to the query. */
 export async function syncEngineUnlisten(
   syncEngine: SyncEngine,
-  query: Query
+  query: Query,
+  shouldUnlistenToRemote: boolean
 ): Promise<void> {
   const syncEngineImpl = debugCast(syncEngine, SyncEngineImpl);
   const queryView = syncEngineImpl.queryViewsByQuery.get(query)!;
@@ -426,7 +470,9 @@ export async function syncEngineUnlisten(
       )
         .then(() => {
           syncEngineImpl.sharedClientState.clearQueryState(queryView.targetId);
-          remoteStoreUnlisten(syncEngineImpl.remoteStore, queryView.targetId);
+          if (shouldUnlistenToRemote) {
+            remoteStoreUnlisten(syncEngineImpl.remoteStore, queryView.targetId);
+          }
           removeAndCleanupTarget(syncEngineImpl, queryView.targetId);
         })
         .catch(ignoreIfPrimaryLeaseLoss);
@@ -438,6 +484,28 @@ export async function syncEngineUnlisten(
       queryView.targetId,
       /*keepPersistedTargetData=*/ true
     );
+  }
+}
+
+/** Unlistens to the remote store while still listening to the cache. */
+export async function triggerRemoteStoreUnlisten(
+  syncEngine: SyncEngine,
+  query: Query
+): Promise<void> {
+  const syncEngineImpl = debugCast(syncEngine, SyncEngineImpl);
+  const queryView = syncEngineImpl.queryViewsByQuery.get(query)!;
+  debugAssert(
+    !!queryView,
+    'Trying to unlisten on query not found:' + stringifyQuery(query)
+  );
+  const queries = syncEngineImpl.queriesByTarget.get(queryView.targetId)!;
+
+  if (syncEngineImpl.isPrimaryClient && queries.length === 1) {
+    // PORTING NOTE: Unregister the target ID with local Firestore client as
+    // watch target.
+    syncEngineImpl.sharedClientState.removeLocalQueryTarget(queryView.targetId);
+
+    remoteStoreUnlisten(syncEngineImpl.remoteStore, queryView.targetId);
   }
 }
 
@@ -473,7 +541,10 @@ export async function syncEngineWrite(
   } catch (e) {
     // If we can't persist the mutation, we reject the user callback and
     // don't send the mutation. The user can then retry the write.
-    const error = wrapInUserErrorIfRecoverable(e, `Failed to persist write`);
+    const error = wrapInUserErrorIfRecoverable(
+      e as Error,
+      `Failed to persist write`
+    );
     userCallback.reject(error);
   }
 }
@@ -532,7 +603,7 @@ export async function syncEngineApplyRemoteEvent(
       remoteEvent
     );
   } catch (error) {
-    await ignoreIfPrimaryLeaseLoss(error);
+    await ignoreIfPrimaryLeaseLoss(error as FirestoreError);
   }
 }
 
@@ -631,7 +702,9 @@ export async function syncEngineRejectListen(
     const event = new RemoteEvent(
       SnapshotVersion.min(),
       /* targetChanges= */ new Map<TargetId, TargetChange>(),
-      /* targetMismatches= */ new SortedSet<TargetId>(primitiveComparator),
+      /* targetMismatches= */ new SortedMap<TargetId, TargetPurpose>(
+        primitiveComparator
+      ),
       documentUpdates,
       resolvedLimboDocuments
     );
@@ -684,7 +757,7 @@ export async function syncEngineApplySuccessfulWrite(
     );
     await syncEngineEmitNewSnapsAndNotifyLocalStore(syncEngineImpl, changes);
   } catch (error) {
-    await ignoreIfPrimaryLeaseLoss(error);
+    await ignoreIfPrimaryLeaseLoss(error as FirestoreError);
   }
 }
 
@@ -715,7 +788,7 @@ export async function syncEngineRejectFailedWrite(
     );
     await syncEngineEmitNewSnapsAndNotifyLocalStore(syncEngineImpl, changes);
   } catch (error) {
-    await ignoreIfPrimaryLeaseLoss(error);
+    await ignoreIfPrimaryLeaseLoss(error as FirestoreError);
   }
 }
 
@@ -752,7 +825,7 @@ export async function syncEngineRegisterPendingWritesCallback(
     syncEngineImpl.pendingWritesCallbacks.set(highestBatchId, callbacks);
   } catch (e) {
     const firestoreError = wrapInUserErrorIfRecoverable(
-      e,
+      e as Error,
       'Initialization of waitForPendingWrites() operation failed'
     );
     callback.reject(firestoreError);
@@ -1018,13 +1091,26 @@ export async function syncEngineEmitNewSnapsAndNotifyLocalStore(
       syncEngineImpl
         .applyDocChanges(queryView, changes, remoteEvent)
         .then(viewSnapshot => {
-          if (viewSnapshot) {
+          // If there are changes, or we are handling a global snapshot, notify
+          // secondary clients to update query state.
+          if (viewSnapshot || remoteEvent) {
             if (syncEngineImpl.isPrimaryClient) {
+              // Query state is set to `current` if:
+              // - There is a view change and it is up-to-date, or,
+              // - There is a global snapshot, the Target is current, and no changes to be resolved
+              const isCurrent = viewSnapshot
+                ? !viewSnapshot.fromCache
+                : remoteEvent?.targetChanges.get(queryView.targetId)?.current;
+
               syncEngineImpl.sharedClientState.updateQueryState(
                 queryView.targetId,
-                viewSnapshot.fromCache ? 'not-current' : 'current'
+                isCurrent ? 'current' : 'not-current'
               );
             }
+          }
+
+          // Update views if there are actual changes.
+          if (!!viewSnapshot) {
             newSnaps.push(viewSnapshot);
             const docChanges = LocalViewChanges.fromSnapshot(
               queryView.targetId,
@@ -1066,10 +1152,13 @@ async function applyDocChanges(
 
   const targetChange =
     remoteEvent && remoteEvent.targetChanges.get(queryView.targetId);
+  const targetIsPendingReset =
+    remoteEvent && remoteEvent.targetMismatches.get(queryView.targetId) != null;
   const viewChange = queryView.view.applyChanges(
     viewDocChanges,
-    /* updateLimboDocuments= */ syncEngineImpl.isPrimaryClient,
-    targetChange
+    /* limboResolutionEnabled= */ syncEngineImpl.isPrimaryClient,
+    targetChange,
+    targetIsPendingReset
   );
   updateTrackedLimbos(
     syncEngineImpl,
@@ -1376,7 +1465,8 @@ async function synchronizeQueryViewsAndRaiseSnapshots(
         syncEngineImpl,
         synthesizeTargetToQuery(target!),
         targetId,
-        /*current=*/ false
+        /*current=*/ false,
+        targetData.resumeToken
       );
     }
 
@@ -1448,7 +1538,8 @@ export async function syncEngineApplyTargetState(
         const synthesizedRemoteEvent =
           RemoteEvent.createSynthesizedRemoteEventForCurrentChange(
             targetId,
-            state === 'current'
+            state === 'current',
+            ByteString.EMPTY_BYTE_STRING
           );
         await syncEngineEmitNewSnapsAndNotifyLocalStore(
           syncEngineImpl,
@@ -1484,8 +1575,12 @@ export async function syncEngineApplyActiveTargetsChange(
   }
 
   for (const targetId of added) {
-    if (syncEngineImpl.queriesByTarget.has(targetId)) {
-      // A target might have been added in a previous attempt
+    // A target is already listening to remote store if it is already registered to
+    // sharedClientState.
+    const targetAlreadyListeningToRemoteStore =
+      syncEngineImpl.queriesByTarget.has(targetId) &&
+      syncEngineImpl.sharedClientState.isActiveQueryTarget(targetId);
+    if (targetAlreadyListeningToRemoteStore) {
       logDebug(LOG_TAG, 'Adding an already active target ' + targetId);
       continue;
     }
@@ -1503,7 +1598,8 @@ export async function syncEngineApplyActiveTargetsChange(
       syncEngineImpl,
       synthesizeTargetToQuery(target),
       targetData.targetId,
-      /*current=*/ false
+      /*current=*/ false,
+      targetData.resumeToken
     );
     remoteStoreListen(syncEngineImpl.remoteStore, targetData);
   }
@@ -1628,7 +1724,7 @@ async function loadBundleImpl(
     return Promise.resolve(result.changedCollectionGroups);
   } catch (e) {
     logWarn(LOG_TAG, `Loading bundle failed with ${e}`);
-    task._failWith(e);
+    task._failWith(e as FirestoreError);
     return Promise.resolve(new Set<string>());
   }
 }

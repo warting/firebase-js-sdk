@@ -50,7 +50,7 @@ describe('platform_browser/recaptcha/recaptcha_verifier', () => {
     auth.languageCode = 'fr';
     container = document.createElement('div');
     parameters = {};
-    verifier = new RecaptchaVerifier(container, parameters, auth);
+    verifier = new RecaptchaVerifier(auth, container, parameters);
     // The verifier will have set the parameters.callback field to be the wrapped callback
 
     mockEndpoint(Endpoint.GET_RECAPTCHA_PARAM, {
@@ -67,7 +67,7 @@ describe('platform_browser/recaptcha/recaptcha_verifier', () => {
   context('#render', () => {
     it('caches the promise if not completed and returns if called multiple times', () => {
       // This will force the loader to never return so the render promise never completes
-      sinon.stub(recaptchaLoader, 'load').returns(new Promise(() => { }));
+      sinon.stub(recaptchaLoader, 'load').returns(new Promise(() => {}));
       const renderPromise = verifier.render();
       expect(verifier.render()).to.eq(renderPromise);
     });
@@ -134,7 +134,7 @@ describe('platform_browser/recaptcha/recaptcha_verifier', () => {
         }
       };
 
-      verifier = new RecaptchaVerifier(container, parameters, auth);
+      verifier = new RecaptchaVerifier(auth, container, parameters);
       const expected = await verifier.verify();
       expect(token).to.eq(expected);
     });
@@ -149,7 +149,7 @@ describe('platform_browser/recaptcha/recaptcha_verifier', () => {
         callback: 'callbackOnWindowObject'
       };
 
-      verifier = new RecaptchaVerifier(container, parameters, auth);
+      verifier = new RecaptchaVerifier(auth, container, parameters);
       const expected = await verifier.verify();
       expect(token).to.eq(expected);
 

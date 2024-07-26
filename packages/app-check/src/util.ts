@@ -16,7 +16,7 @@
  */
 
 import { GreCAPTCHA } from './recaptcha';
-import { getState } from './state';
+import { getStateReference } from './state';
 import { ERROR_FACTORY, AppCheckError } from './errors';
 import { FirebaseApp } from '@firebase/app';
 
@@ -30,22 +30,11 @@ export function getRecaptcha(
 }
 
 export function ensureActivated(app: FirebaseApp): void {
-  if (!getState(app).activated) {
+  if (!getStateReference(app).activated) {
     throw ERROR_FACTORY.create(AppCheckError.USE_BEFORE_ACTIVATION, {
       appName: app.name
     });
   }
-}
-
-/**
- * Copied from https://stackoverflow.com/a/2117523
- */
-export function uuidv4(): string {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
-    const r = (Math.random() * 16) | 0,
-      v = c === 'x' ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
 }
 
 export function getDurationString(durationInMillis: number): string {

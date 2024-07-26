@@ -76,7 +76,12 @@ export const enum TimerId {
    * A timer used to retry operations scheduled via retryable AsyncQueue
    * operations.
    */
-  AsyncQueueRetry = 'async_queue_retry'
+  AsyncQueueRetry = 'async_queue_retry',
+
+  /**
+   *  A timer used to periodically attempt index backfill.
+   */
+  IndexBackfill = 'index_backfill'
 }
 
 /**
@@ -108,6 +113,10 @@ export class DelayedOperation<T extends unknown> implements PromiseLike<T> {
     // and so we attach a dummy catch callback to avoid
     // 'UnhandledPromiseRejectionWarning' log spam.
     this.deferred.promise.catch(err => {});
+  }
+
+  get promise(): Promise<T> {
+    return this.deferred.promise;
   }
 
   /**
@@ -227,7 +236,7 @@ export interface AsyncQueue {
    * `enqueueEvenWhileRestricted()`.
    *
    * @param purgeExistingTasks Whether already enqueued tasked should be
-   * rejected (unless enqueued wih `enqueueEvenWhileRestricted()`). Defaults
+   * rejected (unless enqueued with `enqueueEvenWhileRestricted()`). Defaults
    * to false.
    */
   enterRestrictedMode(purgeExistingTasks?: boolean): void;

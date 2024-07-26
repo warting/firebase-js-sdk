@@ -264,15 +264,19 @@ describe('core/user/user_impl', () => {
         photoURL: 'photo',
         emailVerified: false,
         isAnonymous: true,
-        providerData: [{
-          providerId: 'password',
-          displayName: null,
-          photoURL: null,
-          email: 'test@foo.test',
-          phoneNumber: null,
-          uid: 'i-am-uid'
-        }],
-        tenantId: 'tenant-id'
+        providerData: [
+          {
+            providerId: 'password',
+            displayName: null,
+            photoURL: null,
+            email: 'test@foo.test',
+            phoneNumber: null,
+            uid: 'i-am-uid'
+          }
+        ],
+        tenantId: 'tenant-id',
+        createdAt: '2018-01-01 13:02:56.12345678',
+        lastLoginAt: '2018-01-05 13:02:56.12345678'
       });
 
       const newAuth = await testAuth();
@@ -282,14 +286,17 @@ describe('core/user/user_impl', () => {
       expect(copy.toJSON()).to.eql(user.toJSON());
       expect(copy.auth).to.eq(newAuth);
       expect(copy.tenantId).to.eq('tenant-id');
-      expect(copy.providerData).to.eql([{
-        providerId: 'password',
-        displayName: null,
-        photoURL: null,
-        email: 'test@foo.test',
-        phoneNumber: null,
-        uid: 'i-am-uid'
-      }]);
+      expect(copy.providerData).to.eql([
+        {
+          providerId: 'password',
+          displayName: null,
+          photoURL: null,
+          email: 'test@foo.test',
+          phoneNumber: null,
+          uid: 'i-am-uid'
+        }
+      ]);
+      expect(copy.metadata.toJSON()).to.eql(user.metadata.toJSON());
     });
   });
 });

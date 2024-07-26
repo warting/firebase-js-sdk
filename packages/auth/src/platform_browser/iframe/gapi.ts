@@ -25,7 +25,7 @@ import * as js from '../load_js';
 const NETWORK_TIMEOUT = new Delay(30000, 60000);
 
 /**
- * Reset unlaoded GApi modules. If gapi.load fails due to a network error,
+ * Reset unloaded GApi modules. If gapi.load fails due to a network error,
  * it will stop working after a retrial. This is a hack to fix this issue.
  */
 function resetUnloadedGapiModules(): void {
@@ -103,7 +103,9 @@ function loadGapi(auth: AuthInternal): Promise<gapi.iframes.Context> {
         }
       };
       // Load GApi loader.
-      return js._loadJS(`https://apis.google.com/js/api.js?onload=${cbName}`).catch(e => reject(e));
+      return js
+        ._loadJS(`${js._gapiScriptUrl()}?onload=${cbName}`)
+        .catch(e => reject(e));
     }
   }).catch(error => {
     // Reset cached promise to allow for retrial.

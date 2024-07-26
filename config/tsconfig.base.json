@@ -15,6 +15,7 @@
       "es2015.core",
       "es2017.object",
       "es2017.string",
+      "ESNext.WeakRef",
     ],
     "module": "ES2015",
     "moduleResolution": "node",
@@ -24,6 +25,12 @@
     "target": "es5",
     "typeRoots": [
       "../node_modules/@types"
+    ],
+    "plugins": [
+      {
+        "name": "tsec",
+        "reportTsecDiagnosticsOnly": true
+      }
     ]
   }
 }

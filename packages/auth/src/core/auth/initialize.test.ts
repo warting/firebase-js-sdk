@@ -126,6 +126,7 @@ describe('core/auth/initialize', () => {
     ): Promise<UserCredential | null> {
       return null;
     }
+    async _overrideRedirectResult(): Promise<void> {}
   }
 
   const fakePopupRedirectResolver: PopupRedirectResolver =
@@ -139,7 +140,7 @@ describe('core/auth/initialize', () => {
     fakeApp = initializeApp({
       apiKey: 'fake-key',
       appId: 'fake-app-id',
-      authDomain: 'fake-auth-domain'
+      authDomain: 'fake-auth-domain:9999'
     });
   });
 
@@ -164,7 +165,7 @@ describe('core/auth/initialize', () => {
         apiHost: 'identitytoolkit.googleapis.com',
         apiKey: 'fake-key',
         apiScheme: 'https',
-        authDomain: 'fake-auth-domain',
+        authDomain: 'fake-auth-domain:9999',
         clientPlatform: expectedClientPlatform,
         sdkClientVersion: expectedSdkClientVersion,
         tokenApiHost: 'securetoken.googleapis.com'

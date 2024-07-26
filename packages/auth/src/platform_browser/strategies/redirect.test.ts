@@ -20,10 +20,7 @@ import chaiAsPromised from 'chai-as-promised';
 import * as sinon from 'sinon';
 import sinonChai from 'sinon-chai';
 
-import {
-  AuthError,
-  PopupRedirectResolver
-} from '../../model/public_types';
+import { AuthError, PopupRedirectResolver } from '../../model/public_types';
 import { OperationType, ProviderId } from '../../model/enums';
 
 import { delay } from '../../../test/helpers/delay';
@@ -74,17 +71,15 @@ describe('platform_browser/strategies/redirect', () => {
   let idpStubs: sinon.SinonStubbedInstance<typeof idpTasks>;
 
   beforeEach(async () => {
-    eventManager = new AuthEventManager(({} as unknown) as TestAuth);
+    eventManager = new AuthEventManager({} as unknown as TestAuth);
     provider = new OAuthProvider(ProviderId.GOOGLE);
     resolver = makeMockPopupRedirectResolver(eventManager);
-    _getInstance<PopupRedirectResolverInternal>(
-      resolver
-    )._redirectPersistence = RedirectPersistence;
+    _getInstance<PopupRedirectResolverInternal>(resolver)._redirectPersistence =
+      RedirectPersistence;
     auth = await testAuth(resolver);
     idpStubs = sinon.stub(idpTasks);
-    _getInstance<RedirectPersistence>(
-      RedirectPersistence
-    ).hasPendingRedirect = true;
+    _getInstance<RedirectPersistence>(RedirectPersistence).hasPendingRedirect =
+      true;
   });
 
   afterEach(() => {
@@ -127,6 +122,37 @@ describe('platform_browser/strategies/redirect', () => {
         'auth/argument-error'
       );
     });
+
+    it('awaits on the auth initialization promise before opening redirect', async () => {
+      // Obtain an auth instance which does not await on the initialization promise.
+      const authWithoutAwait: TestAuth = await testAuth(
+        resolver,
+        undefined,
+        true
+      );
+      // completeRedirectFn calls getRedirectResult under the hood.
+      const getRedirectResultSpy = sinon.spy(
+        _getInstance<PopupRedirectResolverInternal>(resolver),
+        '_completeRedirectFn'
+      );
+      const openRedirectSpy = sinon.spy(
+        _getInstance<PopupRedirectResolverInternal>(resolver),
+        '_openRedirect'
+      );
+      await signInWithRedirect(authWithoutAwait, provider);
+      expect(getRedirectResultSpy).to.have.been.called;
+      expect(getRedirectResultSpy).to.have.been.calledBefore(openRedirectSpy);
+      expect(getRedirectResultSpy).to.have.been.calledWith(
+        authWithoutAwait,
+        resolver,
+        true
+      );
+      expect(openRedirectSpy).to.have.been.calledWith(
+        authWithoutAwait,
+        provider,
+        AuthEventType.SIGN_IN_VIA_REDIRECT
+      );
+    });
   });
 
   context('linkWithRedirect', () => {
@@ -164,6 +190,39 @@ describe('platform_browser/strategies/redirect', () => {
       );
     });
 
+    it('awaits on the auth initialization promise before opening redirect', async () => {
+      // Obtain an auth instance which does not await on the initialization promise.
+      const authWithoutAwait: TestAuth = await testAuth(
+        resolver,
+        undefined,
+        true
+      );
+      user = testUser(authWithoutAwait, 'uid', 'email', true);
+      // completeRedirectFn calls getRedirectResult under the hood.
+      const getRedirectResultSpy = sinon.spy(
+        _getInstance<PopupRedirectResolverInternal>(resolver),
+        '_completeRedirectFn'
+      );
+      const openRedirectSpy = sinon.spy(
+        _getInstance<PopupRedirectResolverInternal>(resolver),
+        '_openRedirect'
+      );
+      await authWithoutAwait._updateCurrentUser(user);
+      await linkWithRedirect(user, provider, resolver);
+      expect(getRedirectResultSpy).to.have.been.called;
+      expect(getRedirectResultSpy).to.have.been.calledBefore(openRedirectSpy);
+      expect(getRedirectResultSpy).to.have.been.calledWith(
+        authWithoutAwait,
+        resolver,
+        true
+      );
+      expect(openRedirectSpy).to.have.been.calledWith(
+        authWithoutAwait,
+        provider,
+        AuthEventType.LINK_VIA_REDIRECT
+      );
+    });
+
     it('errors if no resolver available', async () => {
       auth._popupRedirectResolver = null;
       await expect(linkWithRedirect(user, provider)).to.be.rejectedWith(
@@ -173,9 +232,8 @@ describe('platform_browser/strategies/redirect', () => {
     });
 
     it('persists the redirect user and current user', async () => {
-      const redirectPersistence: PersistenceInternal = _getInstance(
-        RedirectPersistence
-      );
+      const redirectPersistence: PersistenceInternal =
+        _getInstance(RedirectPersistence);
       sinon.spy(redirectPersistence, '_set');
       sinon.spy(auth.persistenceLayer, '_set');
 
@@ -193,9 +251,8 @@ describe('platform_browser/strategies/redirect', () => {
 
     it('persists the redirect user but not current user if diff currentUser', async () => {
       await auth._updateCurrentUser(testUser(auth, 'not-uid', 'email', true));
-      const redirectPersistence: PersistenceInternal = _getInstance(
-        RedirectPersistence
-      );
+      const redirectPersistence: PersistenceInternal =
+        _getInstance(RedirectPersistence);
       sinon.spy(redirectPersistence, '_set');
       sinon.spy(auth.persistenceLayer, '_set');
 
@@ -243,6 +300,40 @@ describe('platform_browser/strategies/redirect', () => {
       );
     });
 
+    it('awaits on the auth initialization promise before opening redirect', async () => {
+      // Obtain an auth instance which does not await on the initialization promise.
+      const authWithoutAwait: TestAuth = await testAuth(
+        resolver,
+        undefined,
+        true
+      );
+      user = testUser(authWithoutAwait, 'uid', 'email', true);
+      // completeRedirectFn calls getRedirectResult under the hood.
+      const getRedirectResultSpy = sinon.spy(
+        _getInstance<PopupRedirectResolverInternal>(resolver),
+        '_completeRedirectFn'
+      );
+      const openRedirectSpy = sinon.spy(
+        _getInstance<PopupRedirectResolverInternal>(resolver),
+        '_openRedirect'
+      );
+      await authWithoutAwait._updateCurrentUser(user);
+      await signInWithRedirect(authWithoutAwait, provider);
+      await reauthenticateWithRedirect(user, provider);
+      expect(getRedirectResultSpy).to.have.been.called;
+      expect(getRedirectResultSpy).to.have.been.calledBefore(openRedirectSpy);
+      expect(getRedirectResultSpy).to.have.been.calledWith(
+        authWithoutAwait,
+        resolver,
+        true
+      );
+      expect(openRedirectSpy).to.have.been.calledWith(
+        authWithoutAwait,
+        provider,
+        AuthEventType.REAUTH_VIA_REDIRECT
+      );
+    });
+
     it('errors if no resolver available', async () => {
       auth._popupRedirectResolver = null;
       await expect(
@@ -251,9 +342,8 @@ describe('platform_browser/strategies/redirect', () => {
     });
 
     it('persists the redirect user and current user', async () => {
-      const redirectPersistence: PersistenceInternal = _getInstance(
-        RedirectPersistence
-      );
+      const redirectPersistence: PersistenceInternal =
+        _getInstance(RedirectPersistence);
       sinon.spy(redirectPersistence, '_set');
       sinon.spy(auth.persistenceLayer, '_set');
 
@@ -271,9 +361,8 @@ describe('platform_browser/strategies/redirect', () => {
 
     it('persists the redirect user but not current user if diff currentUser', async () => {
       await auth._updateCurrentUser(testUser(auth, 'not-uid', 'email', true));
-      const redirectPersistence: PersistenceInternal = _getInstance(
-        RedirectPersistence
-      );
+      const redirectPersistence: PersistenceInternal =
+        _getInstance(RedirectPersistence);
       sinon.spy(redirectPersistence, '_set');
       sinon.spy(auth.persistenceLayer, '_set');
 
@@ -300,9 +389,8 @@ describe('platform_browser/strategies/redirect', () => {
     }
 
     async function reInitAuthWithRedirectUser(eventId: string): Promise<void> {
-      const redirectPersistence: RedirectPersistence = _getInstance(
-        RedirectPersistence
-      );
+      const redirectPersistence: RedirectPersistence =
+        _getInstance(RedirectPersistence);
       const mainPersistence = new MockPersistenceLayer();
       const oldAuth = await testAuth();
       const user = testUser(oldAuth, 'uid');
@@ -410,9 +498,8 @@ describe('platform_browser/strategies/redirect', () => {
 
     it('removes the redirect user and clears eventId from currentuser', async () => {
       await reInitAuthWithRedirectUser(MATCHING_EVENT_ID);
-      const redirectPersistence: PersistenceInternal = _getInstance(
-        RedirectPersistence
-      );
+      const redirectPersistence: PersistenceInternal =
+        _getInstance(RedirectPersistence);
       sinon.spy(redirectPersistence, '_remove');
 
       const cred = new UserCredentialImpl({
@@ -436,9 +523,8 @@ describe('platform_browser/strategies/redirect', () => {
 
     it('does not mutate authstate if bypassAuthState is true', async () => {
       await reInitAuthWithRedirectUser(MATCHING_EVENT_ID);
-      const redirectPersistence: PersistenceInternal = _getInstance(
-        RedirectPersistence
-      );
+      const redirectPersistence: PersistenceInternal =
+        _getInstance(RedirectPersistence);
       sinon.spy(redirectPersistence, '_remove');
 
       const cred = new UserCredentialImpl({

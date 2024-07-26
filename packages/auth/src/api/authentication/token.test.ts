@@ -21,11 +21,12 @@ import chaiAsPromised from 'chai-as-promised';
 
 import { FirebaseError, getUA, querystringDecode } from '@firebase/util';
 
-import { HttpHeader } from '../';
+import { Endpoint, HttpHeader } from '../';
+import { mockEndpoint } from '../../../test/helpers/api/helper';
 import { testAuth, TestAuth } from '../../../test/helpers/mock_auth';
 import * as fetch from '../../../test/helpers/mock_fetch';
 import { ServerError } from '../errors';
-import { Endpoint, requestStsToken } from './token';
+import { TokenType, requestStsToken, revokeToken } from './token';
 import { SDK_VERSION } from '@firebase/app';
 import { _getBrowserName } from '../../core/util/browser';
 
@@ -95,10 +96,12 @@ describe('requestStsToken', () => {
   });
 
   it('should include whatever headers come from auth impl', async () => {
-    sinon.stub(auth, '_getAdditionalHeaders').returns(Promise.resolve({
-      'look-at-me-im-a-header': 'header-value',
-      'anotherheader': 'header-value-2',
-    }));
+    sinon.stub(auth, '_getAdditionalHeaders').returns(
+      Promise.resolve({
+        'look-at-me-im-a-header': 'header-value',
+        'anotherheader': 'header-value-2'
+      })
+    );
 
     const mock = fetch.mock(endpoint, {
       'access_token': 'new-access-token',
@@ -106,8 +109,10 @@ describe('requestStsToken', () => {
       'refresh_token': 'new-refresh-token'
     });
     await requestStsToken(auth, 'old-refresh-token');
-    
-    expect(mock.calls[0].headers.get('look-at-me-im-a-header')).to.eq('header-value');
+
+    expect(mock.calls[0].headers.get('look-at-me-im-a-header')).to.eq(
+      'header-value'
+    );
     expect(mock.calls[0].headers.get('anotherheader')).to.eq('header-value-2');
   });
 
@@ -137,5 +142,65 @@ describe('requestStsToken', () => {
       'grant_type': 'refresh_token',
       'refresh_token': 'old-token'
     });
+  });
+});
+
+describe('api/authentication/revokeToken', () => {
+  const request = {
+    providerId: 'provider-id',
+    tokenType: TokenType.ACCESS_TOKEN,
+    token: 'token',
+    idToken: 'id-token'
+  };
+
+  let auth: TestAuth;
+
+  beforeEach(async () => {
+    auth = await testAuth();
+    fetch.setUp();
+  });
+
+  afterEach(() => {
+    fetch.tearDown();
+  });
+
+  it('should POST to the correct endpoint', async () => {
+    const mock = mockEndpoint(Endpoint.REVOKE_TOKEN, {});
+
+    auth.tenantId = 'tenant-id';
+    await revokeToken(auth, request);
+    // Currently, backend returns an empty response.
+    expect(mock.calls[0].request).to.eql({ ...request, tenantId: 'tenant-id' });
+    expect(mock.calls[0].method).to.eq('POST');
+    expect(mock.calls[0].headers!.get(HttpHeader.CONTENT_TYPE)).to.eq(
+      'application/json'
+    );
+    expect(mock.calls[0].headers!.get(HttpHeader.X_CLIENT_VERSION)).to.eq(
+      'testSDK/0.0.0'
+    );
+  });
+
+  it('should handle errors', async () => {
+    const mock = mockEndpoint(
+      Endpoint.REVOKE_TOKEN,
+      {
+        error: {
+          code: 400,
+          message: ServerError.INVALID_IDP_RESPONSE,
+          errors: [
+            {
+              message: ServerError.INVALID_IDP_RESPONSE
+            }
+          ]
+        }
+      },
+      400
+    );
+
+    await expect(revokeToken(auth, request)).to.be.rejectedWith(
+      FirebaseError,
+      'Firebase: The supplied auth credential is incorrect, malformed or has expired. (auth/invalid-credential).'
+    );
+    expect(mock.calls[0].request).to.eql(request);
   });
 });

@@ -21,7 +21,7 @@ import {
   ErrorCode
 } from '../../implementation/connection';
 import { internalError } from '../../implementation/error';
-import nodeFetch, { Headers } from 'node-fetch';
+import { fetch as undiciFetch, Headers as undiciHeaders } from 'undici';
 
 /** An override for the text-based Connection. Used in tests. */
 let textFactoryOverride: (() => Connection<string>) | null = null;
@@ -39,9 +39,9 @@ abstract class FetchConnection<T extends ConnectionType>
   protected statusCode_: number | undefined;
   protected body_: ArrayBuffer | undefined;
   protected errorText_ = '';
-  protected headers_: Headers | undefined;
+  protected headers_: undiciHeaders | undefined;
   protected sent_: boolean = false;
-  protected fetch_ = nodeFetch;
+  protected fetch_ = undiciFetch;
 
   constructor() {
     this.errorCode_ = ErrorCode.NO_ERROR;
@@ -69,7 +69,7 @@ abstract class FetchConnection<T extends ConnectionType>
       this.errorCode_ = ErrorCode.NO_ERROR;
       this.body_ = await response.arrayBuffer();
     } catch (e) {
-      this.errorText_ = e.message;
+      this.errorText_ = (e as Error)?.message;
       // emulate XHR which sets status to 0 when encountering a network error
       this.statusCode_ = 0;
       this.errorCode_ = ErrorCode.NETWORK_ERROR;
@@ -171,7 +171,7 @@ export class FetchStreamConnection extends FetchConnection<NodeJS.ReadableStream
       this.errorCode_ = ErrorCode.NO_ERROR;
       this.stream_ = response.body;
     } catch (e) {
-      this.errorText_ = e.message;
+      this.errorText_ = (e as Error)?.message;
       // emulate XHR which sets status to 0 when encountering a network error
       this.statusCode_ = 0;
       this.errorCode_ = ErrorCode.NETWORK_ERROR;

@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+import { getUA, isSafari } from '@firebase/util';
+
 import {
   LimitType,
   newQueryComparator,
@@ -43,10 +45,32 @@ import { Iterable } from '../util/misc';
 import { SortedSet } from '../util/sorted_set';
 
 import { IndexManager, IndexType } from './index_manager';
-import { INDEXING_ENABLED } from './indexeddb_schema';
 import { LocalDocumentsView } from './local_documents_view';
 import { PersistencePromise } from './persistence_promise';
 import { PersistenceTransaction } from './persistence_transaction';
+import { QueryContext } from './query_context';
+import { getAndroidVersion } from './simple_db';
+
+const DEFAULT_INDEX_AUTO_CREATION_MIN_COLLECTION_SIZE = 100;
+
+/**
+ * This cost represents the evaluation result of
+ * (([index, docKey] + [docKey, docContent]) per document in the result set)
+ * / ([docKey, docContent] per documents in full collection scan) coming from
+ * experiment [enter PR experiment URL here].
+ */
+function getDefaultRelativeIndexReadCostPerDocument(): number {
+  // These values were derived from an experiment where several members of the
+  // Firestore SDK team ran a performance test in various environments.
+  // Googlers can see b/299284287 for details.
+  if (isSafari()) {
+    return 8;
+  } else if (getAndroidVersion(getUA()) > 0) {
+    return 6;
+  } else {
+    return 4;
+  }
+}
 
 /**
  * The Firestore query engine.
@@ -91,6 +115,18 @@ export class QueryEngine {
   private indexManager!: IndexManager;
   private initialized = false;
 
+  indexAutoCreationEnabled = false;
+
+  /**
+   * SDK only decides whether it should create index when collection size is
+   * larger than this.
+   */
+  indexAutoCreationMinCollectionSize =
+    DEFAULT_INDEX_AUTO_CREATION_MIN_COLLECTION_SIZE;
+
+  relativeIndexReadCostPerDocument =
+    getDefaultRelativeIndexReadCostPerDocument();
+
   /** Sets the document view to query against. */
   initialize(
     localDocuments: LocalDocumentsView,
@@ -110,20 +146,103 @@ export class QueryEngine {
   ): PersistencePromise<DocumentMap> {
     debugAssert(this.initialized, 'initialize() not called');
 
+    // Stores the result from executing the query; using this object is more
+    // convenient than passing the result between steps of the persistence
+    // transaction and improves readability comparatively.
+    const queryResult: { result: DocumentMap | null } = { result: null };
+
     return this.performQueryUsingIndex(transaction, query)
-      .next(result =>
-        result
-          ? result
-          : this.performQueryUsingRemoteKeys(
-              transaction,
-              query,
-              remoteKeys,
-              lastLimboFreeSnapshotVersion
-            )
-      )
-      .next(result =>
-        result ? result : this.executeFullCollectionScan(transaction, query)
+      .next(result => {
+        queryResult.result = result;
+      })
+      .next(() => {
+        if (queryResult.result) {
+          return;
+        }
+        return this.performQueryUsingRemoteKeys(
+          transaction,
+          query,
+          remoteKeys,
+          lastLimboFreeSnapshotVersion
+        ).next(result => {
+          queryResult.result = result;
+        });
+      })
+      .next(() => {
+        if (queryResult.result) {
+          return;
+        }
+        const context = new QueryContext();
+        return this.executeFullCollectionScan(transaction, query, context).next(
+          result => {
+            queryResult.result = result;
+            if (this.indexAutoCreationEnabled) {
+              return this.createCacheIndexes(
+                transaction,
+                query,
+                context,
+                result.size
+              );
+            }
+          }
+        );
+      })
+      .next(() => queryResult.result!);
+  }
+
+  createCacheIndexes(
+    transaction: PersistenceTransaction,
+    query: Query,
+    context: QueryContext,
+    resultSize: number
+  ): PersistencePromise<void> {
+    if (context.documentReadCount < this.indexAutoCreationMinCollectionSize) {
+      if (getLogLevel() <= LogLevel.DEBUG) {
+        logDebug(
+          'QueryEngine',
+          'SDK will not create cache indexes for query:',
+          stringifyQuery(query),
+          'since it only creates cache indexes for collection contains',
+          'more than or equal to',
+          this.indexAutoCreationMinCollectionSize,
+          'documents'
+        );
+      }
+      return PersistencePromise.resolve();
+    }
+
+    if (getLogLevel() <= LogLevel.DEBUG) {
+      logDebug(
+        'QueryEngine',
+        'Query:',
+        stringifyQuery(query),
+        'scans',
+        context.documentReadCount,
+        'local documents and returns',
+        resultSize,
+        'documents as results.'
       );
+    }
+
+    if (
+      context.documentReadCount >
+      this.relativeIndexReadCostPerDocument * resultSize
+    ) {
+      if (getLogLevel() <= LogLevel.DEBUG) {
+        logDebug(
+          'QueryEngine',
+          'The SDK decides to create cache indexes for query:',
+          stringifyQuery(query),
+          'as using cache indexes may help improve performance.'
+        );
+      }
+      return this.indexManager.createTargetIndexes(
+        transaction,
+        queryToTarget(query)
+      );
+    }
+
+    return PersistencePromise.resolve();
   }
 
   /**
@@ -134,10 +253,6 @@ export class QueryEngine {
     transaction: PersistenceTransaction,
     query: Query
   ): PersistencePromise<DocumentMap | null> {
-    if (!INDEXING_ENABLED) {
-      return PersistencePromise.resolve<DocumentMap | null>(null);
-    }
-
     if (queryMatchesAllDocuments(query)) {
       // Queries that match all documents don't benefit from using
       // key-based lookups. It is more efficient to scan all documents in a
@@ -145,7 +260,7 @@ export class QueryEngine {
       return PersistencePromise.resolve<DocumentMap | null>(null);
     }
 
-    const target = queryToTarget(query);
+    let target = queryToTarget(query);
     return this.indexManager
       .getIndexType(transaction, target)
       .next(indexType => {
@@ -154,7 +269,7 @@ export class QueryEngine {
           return null;
         }
 
-        if (indexType === IndexType.PARTIAL) {
+        if (query.limit !== null && indexType === IndexType.PARTIAL) {
           // We cannot apply a limit for targets that are served using a partial
           // index. If a partial index will be used to serve the target, the
           // query may return a superset of documents that match the target
@@ -162,10 +277,8 @@ export class QueryEngine {
           // may return the correct set of documents in the wrong order (e.g. if
           // the index doesn't include a segment for one of the orderBys).
           // Therefore, a limit should not be applied in such cases.
-          return this.performQueryUsingIndex(
-            transaction,
-            queryWithLimit(query, null, LimitType.First)
-          );
+          query = queryWithLimit(query, null, LimitType.First);
+          target = queryToTarget(query);
         }
 
         return this.indexManager
@@ -228,18 +341,18 @@ export class QueryEngine {
     query: Query,
     remoteKeys: DocumentKeySet,
     lastLimboFreeSnapshotVersion: SnapshotVersion
-  ): PersistencePromise<DocumentMap> {
+  ): PersistencePromise<DocumentMap | null> {
     if (queryMatchesAllDocuments(query)) {
       // Queries that match all documents don't benefit from using
       // key-based lookups. It is more efficient to scan all documents in a
       // collection, rather than to perform individual lookups.
-      return this.executeFullCollectionScan(transaction, query);
+      return PersistencePromise.resolve<DocumentMap | null>(null);
     }
 
     // Queries that have never seen a snapshot without limbo free documents
     // should also be run as a full collection scan.
     if (lastLimboFreeSnapshotVersion.isEqual(SnapshotVersion.min())) {
-      return this.executeFullCollectionScan(transaction, query);
+      return PersistencePromise.resolve<DocumentMap | null>(null);
     }
 
     return this.localDocumentsView!.getDocuments(transaction, remoteKeys).next(
@@ -254,7 +367,7 @@ export class QueryEngine {
             lastLimboFreeSnapshotVersion
           )
         ) {
-          return this.executeFullCollectionScan(transaction, query);
+          return PersistencePromise.resolve<DocumentMap | null>(null);
         }
 
         if (getLogLevel() <= LogLevel.DEBUG) {
@@ -276,7 +389,7 @@ export class QueryEngine {
             lastLimboFreeSnapshotVersion,
             INITIAL_LARGEST_BATCH_ID
           )
-        );
+        ).next<DocumentMap | null>(results => results);
       }
     );
   }
@@ -301,7 +414,7 @@ export class QueryEngine {
    * Determines if a limit query needs to be refilled from cache, making it
    * ineligible for index-free execution.
    *
-   * @param query The query.
+   * @param query - The query.
    * @param sortedPreviousResults - The documents that matched the query when it
    * was last synchronized, sorted by the query's comparator.
    * @param remoteKeys - The document keys that matched the query at the last
@@ -350,7 +463,8 @@ export class QueryEngine {
 
   private executeFullCollectionScan(
     transaction: PersistenceTransaction,
-    query: Query
+    query: Query,
+    context: QueryContext
   ): PersistencePromise<DocumentMap> {
     if (getLogLevel() <= LogLevel.DEBUG) {
       logDebug(
@@ -363,7 +477,8 @@ export class QueryEngine {
     return this.localDocumentsView!.getDocumentsMatchingQuery(
       transaction,
       query,
-      IndexOffset.min()
+      IndexOffset.min(),
+      context
     );
   }
 

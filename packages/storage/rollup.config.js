@@ -100,6 +100,26 @@ const browserBuilds = [
     }
   },
   {
+    input: './src/index.ts',
+    output: {
+      file: './dist/index.cjs.js',
+      format: 'cjs',
+      sourcemap: true
+    },
+    plugins: [
+      alias(generateAliasConfig('browser')),
+      ...es2017Plugins,
+      replace({
+        ...generateBuildTargetReplaceConfig('cjs', 2017),
+        '__RUNTIME_ENV__': ''
+      })
+    ],
+    external: id => deps.some(dep => id === dep || id.startsWith(`${dep}/`)),
+    treeshake: {
+      moduleSideEffects: false
+    }
+  },
+  {
     // needed by Emulator UI
     input: './src/index.ts',
     output: [
@@ -143,7 +163,7 @@ const nodeBuilds = [
     }
   },
   {
-    input: './src/index.ts',
+    input: './src/index.node.ts',
     output: {
       file: pkg.exports['.'].node.import,
       format: 'esm',

@@ -17,7 +17,7 @@
 import { expect } from 'chai';
 import * as sinon from 'sinon';
 import { FirebaseApp } from '@firebase/app';
-import { FunctionsErrorCode } from './public-types';
+import { FunctionsErrorCodeCore } from './public-types';
 import {
   Provider,
   ComponentContainer,
@@ -32,9 +32,14 @@ import {
   FirebaseAuthInternal,
   FirebaseAuthInternalName
 } from '@firebase/auth-interop-types';
+import {
+  FirebaseAppCheckInternal,
+  AppCheckInternalComponentName
+} from '@firebase/app-check-interop-types';
 import { makeFakeApp, createTestService } from '../test/utils';
 import { httpsCallable } from './service';
 import { FUNCTIONS_TYPE } from './constants';
+import { FunctionsError } from './error';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 export const TEST_PROJECT = require('../../../config/project.json');
@@ -43,7 +48,7 @@ export const TEST_PROJECT = require('../../../config/project.json');
 // https://github.com/chaijs/chai/issues/608
 async function expectError(
   promise: Promise<any>,
-  code: FunctionsErrorCode,
+  code: FunctionsErrorCodeCore,
   message: string,
   details?: any
 ): Promise<void> {
@@ -52,9 +57,10 @@ async function expectError(
     await promise;
   } catch (e) {
     failed = true;
-    expect(e.code).to.equal(`${FUNCTIONS_TYPE}/${code}`);
-    expect(e.message).to.equal(message);
-    expect(e.details).to.deep.equal(details);
+    const error = e as FunctionsError;
+    expect(error.code).to.equal(`${FUNCTIONS_TYPE}/${code}`);
+    expect(error.message).to.equal(message);
+    expect(error.details).to.deep.equal(details);
   }
   if (!failed) {
     expect(false, 'Promise should have failed.').to.be.true;
@@ -106,7 +112,7 @@ describe('Firebase Functions > Call', () => {
     expect(result.data).to.equal(76);
   });
 
-  it('token', async () => {
+  it('auth token', async () => {
     // mock auth-internal service
     const authMock: FirebaseAuthInternal = {
       getToken: async () => ({ accessToken: 'token' })
@@ -126,6 +132,74 @@ describe('Firebase Functions > Call', () => {
     const func = httpsCallable(functions, 'tokenTest');
     const result = await func({});
     expect(result.data).to.deep.equal({});
+
+    expect(stub.callCount).to.equal(1);
+    stub.restore();
+  });
+
+  it('app check token', async () => {
+    const appCheckMock: FirebaseAppCheckInternal = {
+      getToken: async () => ({ token: 'app-check-token' })
+    } as unknown as FirebaseAppCheckInternal;
+    const appCheckProvider = new Provider<AppCheckInternalComponentName>(
+      'app-check-internal',
+      new ComponentContainer('test')
+    );
+    appCheckProvider.setComponent(
+      new Component(
+        'app-check-internal',
+        () => appCheckMock,
+        ComponentType.PRIVATE
+      )
+    );
+    const functions = createTestService(
+      app,
+      region,
+      undefined,
+      undefined,
+      appCheckProvider
+    );
+
+    // Stub out the internals to get an app check token.
+    const stub = sinon.stub(appCheckMock, 'getToken').callThrough();
+    const func = httpsCallable(functions, 'appCheckTest');
+    const result = await func({});
+    expect(result.data).to.deep.equal({ token: 'app-check-token' });
+
+    expect(stub.callCount).to.equal(1);
+    stub.restore();
+  });
+
+  it('app check limited use token', async () => {
+    const appCheckMock: FirebaseAppCheckInternal = {
+      getLimitedUseToken: async () => ({ token: 'app-check-single-use-token' })
+    } as unknown as FirebaseAppCheckInternal;
+    const appCheckProvider = new Provider<AppCheckInternalComponentName>(
+      'app-check-internal',
+      new ComponentContainer('test')
+    );
+    appCheckProvider.setComponent(
+      new Component(
+        'app-check-internal',
+        () => appCheckMock,
+        ComponentType.PRIVATE
+      )
+    );
+    const functions = createTestService(
+      app,
+      region,
+      undefined,
+      undefined,
+      appCheckProvider
+    );
+
+    // Stub out the internals to get an app check token.
+    const stub = sinon.stub(appCheckMock, 'getLimitedUseToken').callThrough();
+    const func = httpsCallable(functions, 'appCheckTest', {
+      limitedUseAppCheckTokens: true
+    });
+    const result = await func({});
+    expect(result.data).to.deep.equal({ token: 'app-check-single-use-token' });
 
     expect(stub.callCount).to.equal(1);
     stub.restore();

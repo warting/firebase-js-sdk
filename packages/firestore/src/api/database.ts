@@ -15,14 +15,13 @@
  * limitations under the License.
  */
 
-// eslint-disable-next-line import/no-extraneous-dependencies
 import {
   _getProvider,
   _removeServiceInstance,
   FirebaseApp,
   getApp
 } from '@firebase/app';
-import { deepEqual } from '@firebase/util';
+import { deepEqual, getDefaultEmulatorHostnameAndPort } from '@firebase/util';
 
 import { User } from '../auth/user';
 import {
@@ -31,8 +30,9 @@ import {
   OfflineComponentProvider,
   OnlineComponentProvider
 } from '../core/component_provider';
-import { DatabaseId } from '../core/database_info';
+import { DatabaseId, DEFAULT_DATABASE_NAME } from '../core/database_info';
 import {
+  canFallbackFromIndexedDbError,
   FirestoreClient,
   firestoreClientDisableNetwork,
   firestoreClientEnableNetwork,
@@ -43,7 +43,10 @@ import {
   setOnlineComponentProvider
 } from '../core/firestore_client';
 import { makeDatabaseInfo } from '../lite-api/components';
-import { Firestore as LiteFirestore } from '../lite-api/database';
+import {
+  Firestore as LiteFirestore,
+  connectFirestoreEmulator
+} from '../lite-api/database';
 import { Query } from '../lite-api/reference';
 import {
   indexedDbClearPersistence,
@@ -56,6 +59,7 @@ import { AsyncQueue } from '../util/async_queue';
 import { newAsyncQueue } from '../util/async_queue_impl';
 import { Code, FirestoreError } from '../util/error';
 import { cast } from '../util/input_validation';
+import { logWarn } from '../util/log';
 import { Deferred } from '../util/promise';
 
 import { LoadBundleTask } from './bundle';
@@ -72,11 +76,6 @@ declare module '@firebase/component' {
   }
 }
 
-/** DOMException error code constants. */
-const DOM_EXCEPTION_INVALID_STATE = 11;
-const DOM_EXCEPTION_ABORTED = 20;
-const DOM_EXCEPTION_QUOTA_EXCEEDED = 22;
-
 /**
  * Constant used to indicate the LRU garbage collection should be disabled.
  * Set this value as the `cacheSizeBytes` on the settings passed to the
@@ -87,7 +86,7 @@ export const CACHE_SIZE_UNLIMITED = LRU_COLLECTION_DISABLED;
 /**
  * The Cloud Firestore service interface.
  *
- * Do not call this constructor directly. Instead, use {@link getFirestore}.
+ * Do not call this constructor directly. Instead, use {@link (getFirestore:1)}.
  */
 export class Firestore extends LiteFirestore {
   /**
@@ -102,17 +101,18 @@ export class Firestore extends LiteFirestore {
 
   /** @hideconstructor */
   constructor(
-    databaseIdOrApp: DatabaseId | FirebaseApp,
     authCredentialsProvider: CredentialsProvider<User>,
-    appCheckCredentialsProvider: CredentialsProvider<string>
+    appCheckCredentialsProvider: CredentialsProvider<string>,
+    databaseId: DatabaseId,
+    app?: FirebaseApp
   ) {
     super(
-      databaseIdOrApp,
       authCredentialsProvider,
-      appCheckCredentialsProvider
+      appCheckCredentialsProvider,
+      databaseId,
+      app
     );
-    this._persistenceKey =
-      'name' in databaseIdOrApp ? databaseIdOrApp.name : '[DEFAULT]';
+    this._persistenceKey = app?.name || '[DEFAULT]';
   }
 
   _terminate(): Promise<void> {
@@ -128,23 +128,32 @@ export class Firestore extends LiteFirestore {
 /**
  * Initializes a new instance of {@link Firestore} with the provided settings.
  * Can only be called before any other function, including
- * {@link getFirestore}. If the custom settings are empty, this function is
- * equivalent to calling {@link getFirestore}.
+ * {@link (getFirestore:1)}. If the custom settings are empty, this function is
+ * equivalent to calling {@link (getFirestore:1)}.
  *
  * @param app - The {@link @firebase/app#FirebaseApp} with which the {@link Firestore} instance will
  * be associated.
  * @param settings - A settings object to configure the {@link Firestore} instance.
+ * @param databaseId - The name of the database.
  * @returns A newly initialized {@link Firestore} instance.
  */
 export function initializeFirestore(
   app: FirebaseApp,
-  settings: FirestoreSettings
+  settings: FirestoreSettings,
+  databaseId?: string
 ): Firestore {
+  if (!databaseId) {
+    databaseId = DEFAULT_DATABASE_NAME;
+  }
   const provider = _getProvider(app, 'firestore');
 
-  if (provider.isInitialized()) {
-    const existingInstance = provider.getImmediate();
-    const initialSettings = provider.getOptions() as FirestoreSettings;
+  if (provider.isInitialized(databaseId)) {
+    const existingInstance = provider.getImmediate({
+      identifier: databaseId
+    });
+    const initialSettings = provider.getOptions(
+      databaseId
+    ) as FirestoreSettings;
     if (deepEqual(initialSettings, settings)) {
       return existingInstance;
     } else {
@@ -160,6 +169,17 @@ export function initializeFirestore(
 
   if (
     settings.cacheSizeBytes !== undefined &&
+    settings.localCache !== undefined
+  ) {
+    throw new FirestoreError(
+      Code.INVALID_ARGUMENT,
+      `cache and cacheSizeBytes cannot be specified at the same time as cacheSizeBytes will` +
+        `be deprecated. Instead, specify the cache size in the cache object`
+    );
+  }
+
+  if (
+    settings.cacheSizeBytes !== undefined &&
     settings.cacheSizeBytes !== CACHE_SIZE_UNLIMITED &&
     settings.cacheSizeBytes < LRU_MINIMUM_CACHE_SIZE_BYTES
   ) {
@@ -169,20 +189,72 @@ export function initializeFirestore(
     );
   }
 
-  return provider.initialize({ options: settings });
+  return provider.initialize({
+    options: settings,
+    instanceIdentifier: databaseId
+  });
 }
 
 /**
- * Returns the existing {@link Firestore} instance that is associated with the
+ * Returns the existing default {@link Firestore} instance that is associated with the
+ * default {@link @firebase/app#FirebaseApp}. If no instance exists, initializes a new
+ * instance with default settings.
+ *
+ * @returns The default {@link Firestore} instance of the default app.
+ */
+export function getFirestore(): Firestore;
+/**
+ * Returns the existing default {@link Firestore} instance that is associated with the
  * provided {@link @firebase/app#FirebaseApp}. If no instance exists, initializes a new
  * instance with default settings.
  *
  * @param app - The {@link @firebase/app#FirebaseApp} instance that the returned {@link Firestore}
  * instance is associated with.
- * @returns The {@link Firestore} instance of the provided app.
+ * @returns The default {@link Firestore} instance of the provided app.
  */
-export function getFirestore(app: FirebaseApp = getApp()): Firestore {
-  return _getProvider(app, 'firestore').getImmediate() as Firestore;
+export function getFirestore(app: FirebaseApp): Firestore;
+/**
+ * Returns the existing named {@link Firestore} instance that is associated with the
+ * default {@link @firebase/app#FirebaseApp}. If no instance exists, initializes a new
+ * instance with default settings.
+ *
+ * @param databaseId - The name of the database.
+ * @returns The named {@link Firestore} instance of the default app.
+ * @beta
+ */
+export function getFirestore(databaseId: string): Firestore;
+/**
+ * Returns the existing named {@link Firestore} instance that is associated with the
+ * provided {@link @firebase/app#FirebaseApp}. If no instance exists, initializes a new
+ * instance with default settings.
+ *
+ * @param app - The {@link @firebase/app#FirebaseApp} instance that the returned {@link Firestore}
+ * instance is associated with.
+ * @param databaseId - The name of the database.
+ * @returns The named {@link Firestore} instance of the provided app.
+ * @beta
+ */
+export function getFirestore(app: FirebaseApp, databaseId: string): Firestore;
+export function getFirestore(
+  appOrDatabaseId?: FirebaseApp | string,
+  optionalDatabaseId?: string
+): Firestore {
+  const app: FirebaseApp =
+    typeof appOrDatabaseId === 'object' ? appOrDatabaseId : getApp();
+  const databaseId =
+    typeof appOrDatabaseId === 'string'
+      ? appOrDatabaseId
+      : optionalDatabaseId || DEFAULT_DATABASE_NAME;
+  const db = _getProvider(app, 'firestore').getImmediate({
+    identifier: databaseId
+  }) as Firestore;
+  if (!db._initialized) {
+    const emulator = getDefaultEmulatorHostnameAndPort('firestore');
+    if (emulator) {
+      connectFirestoreEmulator(db, ...emulator);
+    }
+  }
+  return db;
 }
 
 /**
@@ -218,30 +290,46 @@ export function configureFirestore(firestore: Firestore): void {
     firestore._queue,
     databaseInfo
   );
+  if (
+    settings.localCache?._offlineComponentProvider &&
+    settings.localCache?._onlineComponentProvider
+  ) {
+    firestore._firestoreClient._uninitializedComponentsProvider = {
+      _offlineKind: settings.localCache.kind,
+      _offline: settings.localCache._offlineComponentProvider,
+      _online: settings.localCache._onlineComponentProvider
+    };
+  }
 }
 
 /**
  * Attempts to enable persistent storage, if possible.
  *
- * Must be called before any other functions (other than
- * {@link initializeFirestore}, {@link getFirestore} or
- * {@link clearIndexedDbPersistence}.
- *
- * If this fails, `enableIndexedDbPersistence()` will reject the promise it
- * returns. Note that even after this failure, the {@link Firestore} instance will
- * remain usable, however offline persistence will be disabled.
- *
- * There are several reasons why this can fail, which can be identified by
- * the `code` on the error.
+ * On failure, `enableIndexedDbPersistence()` will reject the promise or
+ * throw an exception. There are several reasons why this can fail, which can be
+ * identified by the `code` on the error.
  *
  *   * failed-precondition: The app is already open in another browser tab.
- *   * unimplemented: The browser is incompatible with the offline
- *     persistence implementation.
+ *   * unimplemented: The browser is incompatible with the offline persistence
+ *     implementation.
+ *
+ * Note that even after a failure, the {@link Firestore} instance will remain
+ * usable, however offline persistence will be disabled.
+ *
+ * Note: `enableIndexedDbPersistence()` must be called before any other functions
+ * (other than {@link initializeFirestore}, {@link (getFirestore:1)} or
+ * {@link clearIndexedDbPersistence}.
+ *
+ * Persistence cannot be used in a Node.js environment.
  *
  * @param firestore - The {@link Firestore} instance to enable persistence for.
  * @param persistenceSettings - Optional settings object to configure
  * persistence.
  * @returns A `Promise` that represents successfully enabling persistent storage.
+ * @deprecated This function will be removed in a future major release. Instead, set
+ * `FirestoreSettings.localCache` to an instance of `PersistentLocalCache` to
+ * turn on IndexedDb cache. Calling this function when `FirestoreSettings.localCache`
+ * is already specified will throw an exception.
  */
 export function enableIndexedDbPersistence(
   firestore: Firestore,
@@ -251,6 +339,17 @@ export function enableIndexedDbPersistence(
   verifyNotInitialized(firestore);
 
   const client = ensureFirestoreConfigured(firestore);
+  if (client._uninitializedComponentsProvider) {
+    throw new FirestoreError(
+      Code.FAILED_PRECONDITION,
+      'SDK cache is already specified.'
+    );
+  }
+
+  logWarn(
+    'enableIndexedDbPersistence() will be deprecated in the future, ' +
+      'you can use `FirestoreSettings.cache` instead.'
+  );
   const settings = firestore._freezeSettings();
 
   const onlineComponentProvider = new OnlineComponentProvider();
@@ -272,21 +371,25 @@ export function enableIndexedDbPersistence(
  * shared execution of queries and latency-compensated local document updates
  * across all connected instances.
  *
- * If this fails, `enableMultiTabIndexedDbPersistence()` will reject the promise
- * it returns. Note that even after this failure, the {@link Firestore} instance will
- * remain usable, however offline persistence will be disabled.
- *
- * There are several reasons why this can fail, which can be identified by
- * the `code` on the error.
+ * On failure, `enableMultiTabIndexedDbPersistence()` will reject the promise or
+ * throw an exception. There are several reasons why this can fail, which can be
+ * identified by the `code` on the error.
  *
  *   * failed-precondition: The app is already open in another browser tab and
  *     multi-tab is not enabled.
- *   * unimplemented: The browser is incompatible with the offline
- *     persistence implementation.
+ *   * unimplemented: The browser is incompatible with the offline persistence
+ *     implementation.
+ *
+ * Note that even after a failure, the {@link Firestore} instance will remain
+ * usable, however offline persistence will be disabled.
  *
  * @param firestore - The {@link Firestore} instance to enable persistence for.
  * @returns A `Promise` that represents successfully enabling persistent
  * storage.
+ * @deprecated This function will be removed in a future major release. Instead, set
+ * `FirestoreSettings.localCache` to an instance of `PersistentLocalCache` to
+ * turn on indexeddb cache. Calling this function when `FirestoreSettings.localCache`
+ * is already specified will throw an exception.
  */
 export function enableMultiTabIndexedDbPersistence(
   firestore: Firestore
@@ -295,6 +398,17 @@ export function enableMultiTabIndexedDbPersistence(
   verifyNotInitialized(firestore);
 
   const client = ensureFirestoreConfigured(firestore);
+  if (client._uninitializedComponentsProvider) {
+    throw new FirestoreError(
+      Code.FAILED_PRECONDITION,
+      'SDK cache is already specified.'
+    );
+  }
+
+  logWarn(
+    'enableMultiTabIndexedDbPersistence() will be deprecated in the future, ' +
+      'you can use `FirestoreSettings.cache` instead.'
+  );
   const settings = firestore._freezeSettings();
 
   const onlineComponentProvider = new OnlineComponentProvider();
@@ -328,56 +442,19 @@ function setPersistenceProviders(
         await setOnlineComponentProvider(client, onlineComponentProvider);
         persistenceResult.resolve();
       } catch (e) {
-        if (!canFallbackFromIndexedDbError(e)) {
-          throw e;
+        const error = e as FirestoreError | DOMException;
+        if (!canFallbackFromIndexedDbError(error)) {
+          throw error;
         }
-        console.warn(
-          'Error enabling offline persistence. Falling back to ' +
-            'persistence disabled: ' +
-            e
+        logWarn(
+          'Error enabling indexeddb cache. Falling back to ' +
+            'memory cache: ' +
+            error
         );
-        persistenceResult.reject(e);
+        persistenceResult.reject(error);
       }
     })
     .then(() => persistenceResult.promise);
-}
-
-/**
- * Decides whether the provided error allows us to gracefully disable
- * persistence (as opposed to crashing the client).
- */
-function canFallbackFromIndexedDbError(
-  error: FirestoreError | DOMException
-): boolean {
-  if (error.name === 'FirebaseError') {
-    return (
-      error.code === Code.FAILED_PRECONDITION ||
-      error.code === Code.UNIMPLEMENTED
-    );
-  } else if (
-    typeof DOMException !== 'undefined' &&
-    error instanceof DOMException
-  ) {
-    // There are a few known circumstances where we can open IndexedDb but
-    // trying to read/write will fail (e.g. quota exceeded). For
-    // well-understood cases, we attempt to detect these and then gracefully
-    // fall back to memory persistence.
-    // NOTE: Rather than continue to add to this list, we could decide to
-    // always fall back, with the risk that we might accidentally hide errors
-    // representing actual SDK bugs.
-    return (
-      // When the browser is out of quota we could get either quota exceeded
-      // or an aborted error depending on whether the error happened during
-      // schema migration.
-      error.code === DOM_EXCEPTION_QUOTA_EXCEEDED ||
-      error.code === DOM_EXCEPTION_ABORTED ||
-      // Firefox Private Browsing mode disables IndexedDb and returns
-      // INVALID_STATE for any usage.
-      error.code === DOM_EXCEPTION_INVALID_STATE
-    );
-  }
-
-  return true;
 }
 
 /**
@@ -387,7 +464,7 @@ function canFallbackFromIndexedDbError(
  * Must be called while the {@link Firestore} instance is not started (after the app is
  * terminated or when the app is first initialized). On startup, this function
  * must be called before other functions (other than {@link
- * initializeFirestore} or {@link getFirestore})). If the {@link Firestore}
+ * initializeFirestore} or {@link (getFirestore:1)})). If the {@link Firestore}
  * instance is still running, the promise will be rejected with the error code
  * of `failed-precondition`.
  *
@@ -419,7 +496,7 @@ export function clearIndexedDbPersistence(firestore: Firestore): Promise<void> {
       );
       deferred.resolve();
     } catch (e) {
-      deferred.reject(e);
+      deferred.reject(e as Error | undefined);
     }
   });
   return deferred.promise;
@@ -480,7 +557,7 @@ export function disableNetwork(firestore: Firestore): Promise<void> {
  * may be used. Any other function will throw a `FirestoreError`.
  *
  * To restart after termination, create a new instance of FirebaseFirestore with
- * {@link getFirestore}.
+ * {@link (getFirestore:1)}.
  *
  * Termination does not cancel any pending writes, and any promises that are
  * awaiting a response from the server will not be resolved. If you have
@@ -496,7 +573,11 @@ export function disableNetwork(firestore: Firestore): Promise<void> {
  * terminated.
  */
 export function terminate(firestore: Firestore): Promise<void> {
-  _removeServiceInstance(firestore.app, 'firestore');
+  _removeServiceInstance(
+    firestore.app,
+    'firestore',
+    firestore._databaseId.database
+  );
   return firestore._delete();
 }
 

@@ -49,15 +49,12 @@ module.exports = [
         }
       ]
     },
-    resolve: {
-      mainFields: ['browser', 'module', 'main']
-    },
     stats: {
       colors: true
     },
     devtool: 'source-map',
     devServer: {
-      contentBase: './build'
+      static: './build'
     }
   },
   {
@@ -88,15 +85,12 @@ module.exports = [
         }
       ]
     },
-    resolve: {
-      mainFields: ['browser', 'module', 'main']
-    },
     stats: {
       colors: true
     },
     devtool: 'source-map',
     devServer: {
-      contentBase: './build'
+      static: './build'
     }
   }
 ];

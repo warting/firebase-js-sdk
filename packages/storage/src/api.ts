@@ -14,7 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-// eslint-disable-next-line import/no-extraneous-dependencies
 import { _getProvider, FirebaseApp, getApp } from '@firebase/app';
 
 import {
@@ -51,10 +50,16 @@ import {
   getBytesInternal
 } from './reference';
 import { STORAGE_TYPE } from './constants';
-import { EmulatorMockTokenOptions, getModularInstance } from '@firebase/util';
+import {
+  EmulatorMockTokenOptions,
+  getModularInstance,
+  getDefaultEmulatorHostnameAndPort
+} from '@firebase/util';
 import { StringFormat } from './implementation/string';
 
 export { EmulatorMockTokenOptions } from '@firebase/util';
+
+export { StorageError, StorageErrorCode } from './implementation/error';
 
 /**
  * Public types.
@@ -170,7 +175,7 @@ export function uploadBytesResumable(
 
 /**
  * A `Promise` that resolves with the metadata for this object. If this
- * object doesn't exist or metadata cannot be retreived, the promise is
+ * object doesn't exist or metadata cannot be retrieved, the promise is
  * rejected.
  * @public
  * @param ref - {@link StorageReference} to get metadata from.
@@ -331,6 +336,10 @@ export function getStorage(
   const storageInstance = storageProvider.getImmediate({
     identifier: bucketUrl
   });
+  const emulator = getDefaultEmulatorHostnameAndPort('storage');
+  if (emulator) {
+    connectStorageEmulator(storageInstance, ...emulator);
+  }
   return storageInstance;
 }
 

@@ -46,7 +46,7 @@ const pkg = require('./package.json');
 // for calls to `enablePersistence()` or `clearPersistence()`.
 //
 // We use two different rollup pipelines to take advantage of tree shaking,
-// as Rollup does not support tree shaking for Typescript classes transpiled
+// as Rollup does not support tree shaking for TypeScript classes transpiled
 // down to ES5 (see https://bit.ly/340P23U). The build pipeline in this file
 // produces tree-shaken ES2017 builds that are consumed by the ES5 builds in
 // `rollup.config.es.js`.
@@ -144,14 +144,18 @@ const manglePrivatePropertiesOptions = {
     comments: 'all',
     beautify: true
   },
+  keep_fnames: true,
+  keep_classnames: true,
   mangle: {
     // Temporary hack fix for an issue where mangled code causes some downstream
     // bundlers (Babel?) to confuse the same variable name in different scopes.
     // This can be removed if the problem in the downstream library is fixed
     // or if terser's mangler provides an option to avoid mangling everything
     // that isn't a property.
+    // `lastReasonableEscapeIndex` was causing problems in a switch statement
+    // due to a Closure bug.
     // See issue: https://github.com/firebase/firebase-js-sdk/issues/5384
-    reserved: ['_getProvider'],
+    reserved: ['_getProvider', '__PRIVATE_lastReasonableEscapeIndex'],
     properties: {
       regex: /^__PRIVATE_/,
       // All JS Keywords are reserved. Although this should be taken cared of by

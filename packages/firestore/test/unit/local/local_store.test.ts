@@ -42,6 +42,7 @@ import {
   localStoreGetHighestUnacknowledgedBatchId,
   localStoreGetTargetData,
   localStoreGetNamedQuery,
+  localStoreSetIndexAutoCreationEnabled,
   localStoreHasNewerBundle,
   localStoreWriteLocally,
   LocalWriteResult,
@@ -61,15 +62,22 @@ import {
   DocumentMap
 } from '../../../src/model/collections';
 import { Document } from '../../../src/model/document';
+import { FieldMask } from '../../../src/model/field_mask';
 import {
+  FieldTransform,
   Mutation,
   MutationResult,
+  MutationType,
+  PatchMutation,
   Precondition
 } from '../../../src/model/mutation';
 import {
   MutationBatch,
   MutationBatchResult
 } from '../../../src/model/mutation_batch';
+import { ObjectValue } from '../../../src/model/object_value';
+import { serverTimestamp } from '../../../src/model/server_timestamps';
+import { ServerTimestampTransform } from '../../../src/model/transform_operation';
 import { BundleMetadata as ProtoBundleMetadata } from '../../../src/protos/firestore_bundle_proto';
 import * as api from '../../../src/protos/firestore_proto_api';
 import { RemoteEvent } from '../../../src/remote/remote_event';
@@ -93,6 +101,7 @@ import {
   docUpdateRemoteEvent,
   existenceFilterEvent,
   expectEqual,
+  field,
   filter,
   key,
   localViewChanges,
@@ -126,6 +135,8 @@ class LocalStoreTester {
   private lastTargetId: TargetId | null = null;
   private batches: MutationBatch[] = [];
   private bundleConverter: BundleConverterImpl;
+
+  private queryExecutionCount = 0;
 
   constructor(
     public localStore: LocalStore,
@@ -240,24 +251,19 @@ class LocalStoreTester {
 
   afterAcknowledgingMutation(options: {
     documentVersion: TestSnapshotVersion;
-    transformResult?: api.Value;
+    transformResults?: api.Value[];
   }): LocalStoreTester {
     this.prepareNextStep();
 
     this.promiseChain = this.promiseChain
       .then(() => {
         const batch = this.batches.shift()!;
-        expect(batch.mutations.length).to.equal(
-          1,
-          'Acknowledging more than one mutation not supported.'
-        );
         const ver = version(options.documentVersion);
-        const mutationResults = [
-          new MutationResult(
-            ver,
-            options.transformResult ? [options.transformResult] : []
-          )
-        ];
+        const mutationResults = options.transformResults
+          ? options.transformResults.map(
+              value => new MutationResult(ver, [value])
+            )
+          : [new MutationResult(ver, [])];
         const write = MutationBatchResult.from(batch, ver, mutationResults);
 
         return localStoreAcknowledgeBatch(this.localStore, write);
@@ -318,6 +324,7 @@ class LocalStoreTester {
         query,
         /* usePreviousResults= */ true
       ).then(({ documents }) => {
+        this.queryExecutionCount++;
         this.lastChanges = documents;
       })
     );
@@ -338,36 +345,35 @@ class LocalStoreTester {
    * document key lookups.
    */
   toHaveRead(expectedCount: {
-    mutationsByCollection?: number;
-    mutationsByKey?: number;
+    overlaysByCollection?: number;
+    overlaysByKey?: number;
     documentsByCollection?: number;
     documentsByKey?: number;
+    overlayTypes?: { [k: string]: MutationType };
   }): LocalStoreTester {
     this.promiseChain = this.promiseChain.then(() => {
-      if (expectedCount.mutationsByCollection !== undefined) {
-        expect(this.queryEngine.mutationsReadByCollection).to.be.eq(
-          expectedCount.mutationsByCollection,
-          'Mutations read (by collection)'
-        );
+      const actualCount: typeof expectedCount = {};
+      if (expectedCount.overlaysByCollection !== undefined) {
+        actualCount.overlaysByCollection =
+          this.queryEngine.overlaysReadByCollection;
       }
-      if (expectedCount.mutationsByKey !== undefined) {
-        expect(this.queryEngine.mutationsReadByKey).to.be.eq(
-          expectedCount.mutationsByKey,
-          'Mutations read (by key)'
-        );
+      if (expectedCount.overlaysByKey !== undefined) {
+        actualCount.overlaysByKey = this.queryEngine.overlaysReadByKey;
+      }
+      if (expectedCount.overlayTypes !== undefined) {
+        actualCount.overlayTypes = this.queryEngine.overlayTypes;
       }
       if (expectedCount.documentsByCollection !== undefined) {
-        expect(this.queryEngine.documentsReadByCollection).to.be.eq(
-          expectedCount.documentsByCollection,
-          'Remote documents read (by collection)'
-        );
+        actualCount.documentsByCollection =
+          this.queryEngine.documentsReadByCollection;
       }
       if (expectedCount.documentsByKey !== undefined) {
-        expect(this.queryEngine.documentsReadByKey).to.be.eq(
-          expectedCount.documentsByKey,
-          'Remote documents read (by key)'
-        );
+        actualCount.documentsByKey = this.queryEngine.documentsReadByKey;
       }
+      expect(actualCount).to.deep.eq(
+        expectedCount,
+        `query execution #${this.queryExecutionCount}`
+      );
     });
     return this;
   }
@@ -403,7 +409,10 @@ class LocalStoreTester {
     return this;
   }
 
-  toReturnChanged(...docs: Document[]): LocalStoreTester {
+  toReturnChangedInternal(
+    docs: Document[],
+    isEqual?: (lhs: Document | null, rhs: Document | null) => boolean
+  ): LocalStoreTester {
     this.promiseChain = this.promiseChain.then(() => {
       debugAssert(
         this.lastChanges !== null,
@@ -412,11 +421,27 @@ class LocalStoreTester {
       expect(this.lastChanges.size).to.equal(docs.length, 'number of changes');
       for (const doc of docs) {
         const returned = this.lastChanges.get(doc.key);
-        expectEqual(doc, returned, `Expected '${returned}' to equal '${doc}'.`);
+        const message = `Expected '${returned}' to equal '${doc}'.`;
+        if (isEqual) {
+          expect(isEqual(doc, returned)).to.equal(true, message);
+        } else {
+          expectEqual(doc, returned, message);
+        }
       }
       this.lastChanges = null;
     });
     return this;
+  }
+
+  toReturnChanged(...docs: Document[]): LocalStoreTester {
+    return this.toReturnChangedInternal(docs);
+  }
+
+  toReturnChangedWithDocComparator(
+    isEqual: (lhs: Document | null, rhs: Document | null) => boolean,
+    ...docs: Document[]
+  ): LocalStoreTester {
+    return this.toReturnChangedInternal(docs, isEqual);
   }
 
   toReturnRemoved(...keyStrings: string[]): LocalStoreTester {
@@ -438,16 +463,20 @@ class LocalStoreTester {
     return this;
   }
 
-  toContain(doc: Document): LocalStoreTester {
+  toContain(
+    doc: Document,
+    isEqual?: (lhs: Document, rhs: Document) => boolean
+  ): LocalStoreTester {
     this.promiseChain = this.promiseChain.then(() => {
       return localStoreReadDocument(this.localStore, doc.key).then(result => {
-        expectEqual(
-          result,
-          doc,
-          `Expected ${
-            result ? result.toString() : null
-          } to match ${doc.toString()}.`
-        );
+        const message = `Expected ${
+          result ? result.toString() : null
+        } to match ${doc.toString()}.`;
+        if (isEqual) {
+          expect(isEqual(result, doc)).to.equal(true, message);
+        } else {
+          expectEqual(result, doc, message);
+        }
       });
     });
     return this;
@@ -544,6 +573,22 @@ class LocalStoreTester {
   }
 }
 
+// The `isEqual` method for the Document class does not compare createTime and
+// readTime. For some tests, we'd like to verify that a certain createTime has
+// been calculated for documents. In such cases we can use this comparator.
+function compareDocsWithCreateTime(
+  lhs: Document | null,
+  rhs: Document | null
+): boolean {
+  return (
+    (lhs === null && rhs === null) ||
+    (lhs !== null &&
+      rhs !== null &&
+      lhs.isEqual(rhs) &&
+      lhs.createTime.isEqual(rhs.createTime))
+  );
+}
+
 describe('LocalStore w/ Memory Persistence', () => {
   async function initialize(): Promise<LocalStoreComponents> {
     const queryEngine = new CountingQueryEngine();
@@ -613,6 +658,17 @@ function genericLocalStoreTests(
       gcIsEager
     );
   }
+
+  it('localStoreSetIndexAutoCreationEnabled()', () => {
+    localStoreSetIndexAutoCreationEnabled(localStore, true);
+    expect(queryEngine.indexAutoCreationEnabled).to.be.true;
+    localStoreSetIndexAutoCreationEnabled(localStore, false);
+    expect(queryEngine.indexAutoCreationEnabled).to.be.false;
+    localStoreSetIndexAutoCreationEnabled(localStore, true);
+    expect(queryEngine.indexAutoCreationEnabled).to.be.true;
+    localStoreSetIndexAutoCreationEnabled(localStore, false);
+    expect(queryEngine.indexAutoCreationEnabled).to.be.false;
+  });
 
   it('handles SetMutation', () => {
     return expectLocalStore()
@@ -799,7 +855,7 @@ function genericLocalStoreTests(
     return expectLocalStore()
       .after(deleteMutation('foo/bar'))
       .toReturnRemoved('foo/bar')
-      .toContain(deletedDoc('foo/bar', 0))
+      .toContain(deletedDoc('foo/bar', 0).setHasLocalMutations())
       .afterAcknowledgingMutation({ documentVersion: 1 })
       .toReturnRemoved('foo/bar')
       .toNotContainIfEager(deletedDoc('foo/bar', 1).setHasCommittedMutations())
@@ -817,7 +873,7 @@ function genericLocalStoreTests(
         .toContain(doc('foo/bar', 1, { it: 'base' }))
         .after(deleteMutation('foo/bar'))
         .toReturnRemoved('foo/bar')
-        .toContain(deletedDoc('foo/bar', 0))
+        .toContain(deletedDoc('foo/bar', 0).setHasLocalMutations())
         // remove the mutation so only the mutation is pinning the doc
         .afterReleasingTarget(2)
         .afterAcknowledgingMutation({ documentVersion: 2 })
@@ -837,10 +893,10 @@ function genericLocalStoreTests(
         .toReturnTargetId(2)
         .after(deleteMutation('foo/bar'))
         .toReturnRemoved('foo/bar')
-        .toContain(deletedDoc('foo/bar', 0))
+        .toContain(deletedDoc('foo/bar', 0).setHasLocalMutations())
         .after(docUpdateRemoteEvent(doc('foo/bar', 1, { it: 'base' }), [2]))
         .toReturnRemoved('foo/bar')
-        .toContain(deletedDoc('foo/bar', 0))
+        .toContain(deletedDoc('foo/bar', 0).setHasLocalMutations())
         // Don't need to keep doc pinned anymore
         .afterReleasingTarget(2)
         .afterAcknowledgingMutation({ documentVersion: 2 })
@@ -946,13 +1002,13 @@ function genericLocalStoreTests(
     return expectLocalStore()
       .after(deleteMutation('foo/bar'))
       .toReturnRemoved('foo/bar')
-      .toContain(deletedDoc('foo/bar', 0))
+      .toContain(deletedDoc('foo/bar', 0).setHasLocalMutations())
       .after(patchMutation('foo/bar', { foo: 'bar' }))
       .toReturnRemoved('foo/bar')
-      .toContain(deletedDoc('foo/bar', 0))
+      .toContain(deletedDoc('foo/bar', 0).setHasLocalMutations())
       .afterAcknowledgingMutation({ documentVersion: 2 }) // delete mutation
       .toReturnRemoved('foo/bar')
-      .toContain(deletedDoc('foo/bar', 2).setHasCommittedMutations())
+      .toContain(deletedDoc('foo/bar', 2).setHasLocalMutations())
       .afterAcknowledgingMutation({ documentVersion: 3 }) // patch mutation
       .toReturnChanged(unknownDoc('foo/bar', 3))
       .toNotContainIfEager(unknownDoc('foo/bar', 3))
@@ -1005,15 +1061,15 @@ function genericLocalStoreTests(
           .after(deleteMutation('foo/baz'))
           .toContain(doc('foo/bar', 1, { foo: 'bar' }).setHasLocalMutations())
           .toContain(doc('foo/bah', 0, { foo: 'bah' }).setHasLocalMutations())
-          .toContain(deletedDoc('foo/baz', 0))
+          .toContain(deletedDoc('foo/baz', 0).setHasLocalMutations())
           .afterAcknowledgingMutation({ documentVersion: 3 })
           .toNotContain('foo/bar')
           .toContain(doc('foo/bah', 0, { foo: 'bah' }).setHasLocalMutations())
-          .toContain(deletedDoc('foo/baz', 0))
+          .toContain(deletedDoc('foo/baz', 0).setHasLocalMutations())
           .afterAcknowledgingMutation({ documentVersion: 4 })
           .toNotContain('foo/bar')
           .toNotContain('foo/bah')
-          .toContain(deletedDoc('foo/baz', 0))
+          .toContain(deletedDoc('foo/baz', 0).setHasLocalMutations())
           .afterAcknowledgingMutation({ documentVersion: 5 })
           .toNotContain('foo/bar')
           .toNotContain('foo/bah')
@@ -1039,15 +1095,15 @@ function genericLocalStoreTests(
         .after(deleteMutation('foo/baz'))
         .toContain(doc('foo/bar', 1, { foo: 'bar' }).setHasLocalMutations())
         .toContain(doc('foo/bah', 0, { foo: 'bah' }).setHasLocalMutations())
-        .toContain(deletedDoc('foo/baz', 0))
+        .toContain(deletedDoc('foo/baz', 0).setHasLocalMutations())
         .afterRejectingMutation() // patch mutation
         .toNotContain('foo/bar')
         .toContain(doc('foo/bah', 0, { foo: 'bah' }).setHasLocalMutations())
-        .toContain(deletedDoc('foo/baz', 0))
+        .toContain(deletedDoc('foo/baz', 0).setHasLocalMutations())
         .afterRejectingMutation() // set mutation
         .toNotContain('foo/bar')
         .toNotContain('foo/bah')
-        .toContain(deletedDoc('foo/baz', 0))
+        .toContain(deletedDoc('foo/baz', 0).setHasLocalMutations())
         .afterRejectingMutation() // delete mutation
         .toNotContain('foo/bar')
         .toNotContain('foo/bah')
@@ -1207,7 +1263,11 @@ function genericLocalStoreTests(
         doc('foo/baz', 20, { matches: true }),
         doc('foo/bonk', 0, { matches: true }).setHasLocalMutations()
       )
-      .toHaveRead({ documentsByCollection: 2, mutationsByCollection: 1 })
+      .toHaveRead({
+        documentsByCollection: 2,
+        overlaysByCollection: 1,
+        overlayTypes: { [key('foo/bonk').toString()]: MutationType.Set }
+      })
       .finish();
   });
 
@@ -1227,7 +1287,8 @@ function genericLocalStoreTests(
     );
     const aggregator = new WatchChangeAggregator({
       getRemoteKeysForTarget: () => documentKeySet(),
-      getTargetDataForTarget: () => targetData
+      getTargetDataForTarget: () => targetData,
+      getDatabaseId: () => persistenceHelpers.TEST_DATABASE_ID
     });
     aggregator.handleTargetChange(watchChange);
     const remoteEvent = aggregator.createRemoteEvent(version(1000));
@@ -1267,7 +1328,8 @@ function genericLocalStoreTests(
       );
       const aggregator1 = new WatchChangeAggregator({
         getRemoteKeysForTarget: () => documentKeySet(),
-        getTargetDataForTarget: () => targetData
+        getTargetDataForTarget: () => targetData,
+        getDatabaseId: () => persistenceHelpers.TEST_DATABASE_ID
       });
       aggregator1.handleTargetChange(watchChange1);
       const remoteEvent1 = aggregator1.createRemoteEvent(version(1000));
@@ -1280,7 +1342,8 @@ function genericLocalStoreTests(
       );
       const aggregator2 = new WatchChangeAggregator({
         getRemoteKeysForTarget: () => documentKeySet(),
-        getTargetDataForTarget: () => targetData
+        getTargetDataForTarget: () => targetData,
+        getDatabaseId: () => persistenceHelpers.TEST_DATABASE_ID
       });
       aggregator2.handleTargetChange(watchChange2);
       const remoteEvent2 = aggregator2.createRemoteEvent(version(2000));
@@ -1338,7 +1401,7 @@ function genericLocalStoreTests(
         .toContain(doc('foo/bar', 1, { sum: 1 }).setHasLocalMutations())
         .afterAcknowledgingMutation({
           documentVersion: 2,
-          transformResult: { integerValue: 1 }
+          transformResults: [{ integerValue: 1 }]
         })
         .toReturnChanged(
           doc('foo/bar', 2, { sum: 1 }).setHasCommittedMutations()
@@ -1383,13 +1446,13 @@ function genericLocalStoreTests(
         .toContain(doc('foo/bar', 2, { sum: 3 }).setHasLocalMutations())
         .afterAcknowledgingMutation({
           documentVersion: 3,
-          transformResult: { integerValue: 1 }
+          transformResults: [{ integerValue: 1 }]
         })
         .toReturnChanged(doc('foo/bar', 3, { sum: 3 }).setHasLocalMutations())
         .toContain(doc('foo/bar', 3, { sum: 3 }).setHasLocalMutations())
         .afterAcknowledgingMutation({
           documentVersion: 4,
-          transformResult: { integerValue: 1339 }
+          transformResults: [{ integerValue: 1339 }]
         })
         .toReturnChanged(
           doc('foo/bar', 4, { sum: 1339 }).setHasCommittedMutations()
@@ -1399,7 +1462,7 @@ function genericLocalStoreTests(
     );
   });
 
-  it('holds back only non-idempotent transforms', () => {
+  it('holds back transforms', () => {
     const query1 = query('foo');
     return (
       expectLocalStore()
@@ -1426,21 +1489,22 @@ function genericLocalStoreTests(
           )
         )
         .toReturnChanged(doc('foo/bar', 1, { sum: 0, arrayUnion: [] }))
-        .afterMutations([
-          patchMutation('foo/bar', { sum: increment(1) }),
-          patchMutation('foo/bar', {
-            arrayUnion: arrayUnion('foo')
-          })
-        ])
+        .after(patchMutation('foo/bar', { sum: increment(1) }))
+        .toReturnChanged(
+          doc('foo/bar', 1, {
+            sum: 1,
+            arrayUnion: []
+          }).setHasLocalMutations()
+        )
+        .after(patchMutation('foo/bar', { arrayUnion: arrayUnion('foo') }))
         .toReturnChanged(
           doc('foo/bar', 1, {
             sum: 1,
             arrayUnion: ['foo']
           }).setHasLocalMutations()
         )
-        // The sum transform is not idempotent and the backend's updated value
-        // is ignored. The ArrayUnion transform is recomputed and includes the
-        // backend value.
+        // The sum transform and array union transform make the SDK ignore the
+        // backend's updated value.
         .afterRemoteEvent(
           docUpdateRemoteEvent(
             doc('foo/bar', 2, { sum: 1337, arrayUnion: ['bar'] }),
@@ -1450,8 +1514,40 @@ function genericLocalStoreTests(
         .toReturnChanged(
           doc('foo/bar', 2, {
             sum: 1,
-            arrayUnion: ['bar', 'foo']
+            arrayUnion: ['foo']
           }).setHasLocalMutations()
+        )
+        // With a field transform acknowledgement, the overlay is recalculated
+        // with the remaining local mutations.
+        .afterAcknowledgingMutation({
+          documentVersion: 3,
+          transformResults: [{ integerValue: 1338 }]
+        })
+        .toReturnChanged(
+          doc('foo/bar', 3, {
+            sum: 1338,
+            arrayUnion: ['bar', 'foo']
+          })
+            .setReadTime(SnapshotVersion.fromTimestamp(new Timestamp(0, 3000)))
+            .setHasLocalMutations()
+        )
+        .afterAcknowledgingMutation({
+          documentVersion: 4,
+          transformResults: [
+            {
+              arrayValue: {
+                values: [{ stringValue: 'bar' }, { stringValue: 'foo' }]
+              }
+            }
+          ]
+        })
+        .toReturnChanged(
+          doc('foo/bar', 4, {
+            sum: 1338,
+            arrayUnion: ['bar', 'foo']
+          })
+            .setReadTime(SnapshotVersion.fromTimestamp(new Timestamp(0, 4000)))
+            .setHasCommittedMutations()
         )
         .finish()
     );
@@ -1636,6 +1732,27 @@ function genericLocalStoreTests(
       .finish();
   });
 
+  it('add then update while offline', () => {
+    return expectLocalStore()
+      .afterMutations([
+        setMutation('foo/bar', { 'foo': 'foo-value', 'bar': 1 })
+      ])
+      .toContain(
+        doc('foo/bar', 0, {
+          'foo': 'foo-value',
+          'bar': 1
+        }).setHasLocalMutations()
+      )
+      .afterMutations([patchMutation('foo/bar', { 'bar': 2 })])
+      .toContain(
+        doc('foo/bar', 0, {
+          'foo': 'foo-value',
+          'bar': 2
+        }).setHasLocalMutations()
+      )
+      .finish();
+  });
+
   it('handles saving and loading named queries', async () => {
     return expectLocalStore()
       .after(
@@ -1781,6 +1898,423 @@ function genericLocalStoreTests(
     );
   });
 
+  it('can handle batch Ack when pending batches have other docs', () => {
+    // Prepare two batches, the first one will get rejected by the backend.
+    // When the first batch is rejected, overlay is recalculated with only the
+    // second batch, even though it has more documents than what is being
+    // rejected.
+    return expectLocalStore()
+      .afterMutations([patchMutation('foo/bar', { 'foo': 'bar' })])
+      .afterMutations([
+        setMutation('foo/bar', { 'foo': 'bar-set' }),
+        setMutation('foo/another', { 'foo': 'another' })
+      ])
+      .afterRejectingMutation()
+      .toContain(doc('foo/bar', 0, { 'foo': 'bar-set' }).setHasLocalMutations())
+      .toContain(
+        doc('foo/another', 0, { 'foo': 'another' }).setHasLocalMutations()
+      )
+      .finish();
+  });
+
+  it('can handle multiple field patches on remote docs', () => {
+    const query1 = query('foo', filter('matches', '==', true));
+    return expectLocalStore()
+      .afterAllocatingQuery(query1)
+      .toReturnTargetId(2)
+      .afterRemoteEvent(
+        docAddedRemoteEvent(
+          [doc('foo/bar', 1, { 'likes': 0, 'stars': 0 })],
+          [2],
+          []
+        )
+      )
+      .toReturnChanged(doc('foo/bar', 1, { 'likes': 0, 'stars': 0 }))
+      .toContain(doc('foo/bar', 1, { 'likes': 0, 'stars': 0 }))
+      .after(patchMutation('foo/bar', { 'likes': 1 }))
+      .toReturnChanged(
+        doc('foo/bar', 1, { 'likes': 1, 'stars': 0 }).setHasLocalMutations()
+      )
+      .toContain(
+        doc('foo/bar', 1, { 'likes': 1, 'stars': 0 }).setHasLocalMutations()
+      )
+      .after(patchMutation('foo/bar', { 'stars': 1 }))
+      .toReturnChanged(
+        doc('foo/bar', 1, { 'likes': 1, 'stars': 1 }).setHasLocalMutations()
+      )
+      .toContain(
+        doc('foo/bar', 1, { 'likes': 1, 'stars': 1 }).setHasLocalMutations()
+      )
+      .after(patchMutation('foo/bar', { 'stars': 2 }))
+      .toReturnChanged(
+        doc('foo/bar', 1, { 'likes': 1, 'stars': 2 }).setHasLocalMutations()
+      )
+      .toContain(
+        doc('foo/bar', 1, { 'likes': 1, 'stars': 2 }).setHasLocalMutations()
+      )
+      .finish();
+  });
+
+  it('can handle multiple field patches in one batch on remote docs', () => {
+    const query1 = query('foo');
+    return expectLocalStore()
+      .afterAllocatingQuery(query1)
+      .toReturnTargetId(2)
+      .afterRemoteEvent(
+        docAddedRemoteEvent(
+          [doc('foo/bar', 1, { 'likes': 0, 'stars': 0 })],
+          [2],
+          []
+        )
+      )
+      .toReturnChanged(doc('foo/bar', 1, { 'likes': 0, 'stars': 0 }))
+      .toContain(doc('foo/bar', 1, { 'likes': 0, 'stars': 0 }))
+      .afterMutations([
+        patchMutation('foo/bar', { 'likes': 1 }),
+        patchMutation('foo/bar', { 'stars': 1 })
+      ])
+      .toReturnChanged(
+        doc('foo/bar', 1, { 'likes': 1, 'stars': 1 }).setHasLocalMutations()
+      )
+      .toContain(
+        doc('foo/bar', 1, { 'likes': 1, 'stars': 1 }).setHasLocalMutations()
+      )
+      .after(patchMutation('foo/bar', { 'stars': 2 }))
+      .toReturnChanged(
+        doc('foo/bar', 1, { 'likes': 1, 'stars': 2 }).setHasLocalMutations()
+      )
+      .toContain(
+        doc('foo/bar', 1, { 'likes': 1, 'stars': 2 }).setHasLocalMutations()
+      )
+      .finish();
+  });
+
+  it('can handle multiple field patches on local docs', () => {
+    return expectLocalStore()
+      .after(setMutation('foo/bar', { 'likes': 0, 'stars': 0 }))
+      .toReturnChanged(
+        doc('foo/bar', 1, { 'likes': 0, 'stars': 0 }).setHasLocalMutations()
+      )
+      .toContain(
+        doc('foo/bar', 1, { 'likes': 0, 'stars': 0 }).setHasLocalMutations()
+      )
+      .after(patchMutation('foo/bar', { 'likes': 1 }))
+      .toReturnChanged(
+        doc('foo/bar', 1, { 'likes': 1, 'stars': 0 }).setHasLocalMutations()
+      )
+      .toContain(
+        doc('foo/bar', 1, { 'likes': 1, 'stars': 0 }).setHasLocalMutations()
+      )
+      .after(patchMutation('foo/bar', { 'stars': 1 }))
+      .toReturnChanged(
+        doc('foo/bar', 1, { 'likes': 1, 'stars': 1 }).setHasLocalMutations()
+      )
+      .toContain(
+        doc('foo/bar', 1, { 'likes': 1, 'stars': 1 }).setHasLocalMutations()
+      )
+      .after(patchMutation('foo/bar', { 'stars': 2 }))
+      .toReturnChanged(
+        doc('foo/bar', 1, { 'likes': 1, 'stars': 2 }).setHasLocalMutations()
+      )
+      .toContain(
+        doc('foo/bar', 1, { 'likes': 1, 'stars': 2 }).setHasLocalMutations()
+      )
+      .finish();
+  });
+
+  it('update on remote doc leads to update overlay', () => {
+    expect(new Map([['a', 1]])).to.deep.equal(new Map([['a', 0]]));
+    return expectLocalStore()
+      .afterAllocatingQuery(query('foo'))
+      .afterRemoteEvent(docUpdateRemoteEvent(doc('foo/baz', 10, { a: 1 }), [2]))
+      .afterRemoteEvent(docUpdateRemoteEvent(doc('foo/bar', 20, {}), [2]))
+      .afterMutations([patchMutation('foo/baz', { b: 2 })])
+      .afterExecutingQuery(query('foo'))
+      .toHaveRead({
+        documentsByCollection: 2,
+        overlaysByCollection: 1,
+        overlayTypes: { [key('foo/baz').toString()]: MutationType.Patch }
+      })
+      .finish();
+  });
+
+  it('handles document creation time', () => {
+    return (
+      expectLocalStore()
+        .afterAllocatingQuery(query('col'))
+        .toReturnTargetId(2)
+        .after(docAddedRemoteEvent(doc('col/doc1', 12, { foo: 'bar' }, 5), [2]))
+        .toReturnChangedWithDocComparator(
+          compareDocsWithCreateTime,
+          doc('col/doc1', 12, { foo: 'bar' }, 5)
+        )
+        .toContain(
+          doc('col/doc1', 12, { foo: 'bar' }, 5),
+          compareDocsWithCreateTime
+        )
+        .after(setMutation('col/doc1', { foo: 'newBar' }))
+        .toReturnChangedWithDocComparator(
+          compareDocsWithCreateTime,
+          doc('col/doc1', 12, { foo: 'newBar' }, 5).setHasLocalMutations()
+        )
+        .toContain(
+          doc('col/doc1', 12, { foo: 'newBar' }, 5).setHasLocalMutations(),
+          compareDocsWithCreateTime
+        )
+        .afterAcknowledgingMutation({ documentVersion: 13 })
+        // We haven't seen the remote event yet
+        .toReturnChangedWithDocComparator(
+          compareDocsWithCreateTime,
+          doc('col/doc1', 13, { foo: 'newBar' }, 5).setHasCommittedMutations()
+        )
+        .toContain(
+          doc('col/doc1', 13, { foo: 'newBar' }, 5).setHasCommittedMutations(),
+          compareDocsWithCreateTime
+        )
+        .finish()
+    );
+  });
+
+  it('saves updateTime as createTime when receives ack for creating a new doc', () => {
+    if (gcIsEager) {
+      return;
+    }
+
+    return expectLocalStore()
+      .after(setMutation('col/doc1', { foo: 'newBar' }))
+      .afterAcknowledgingMutation({ documentVersion: 13 })
+      .afterExecutingQuery(query('col'))
+      .toReturnChangedWithDocComparator(
+        compareDocsWithCreateTime,
+        doc('col/doc1', 13, { foo: 'newBar' }, 13).setHasCommittedMutations()
+      )
+      .toContain(
+        doc('col/doc1', 13, { foo: 'newBar' }, 13).setHasCommittedMutations(),
+        compareDocsWithCreateTime
+      )
+      .finish();
+  });
+
+  it('handles createTime for Set -> Ack -> RemoteEvent', () => {
+    if (gcIsEager) {
+      return;
+    }
+
+    return expectLocalStore()
+      .after(setMutation('col/doc1', { foo: 'newBar' }))
+      .afterAcknowledgingMutation({ documentVersion: 13 })
+      .afterExecutingQuery(query('col'))
+      .toReturnChangedWithDocComparator(
+        compareDocsWithCreateTime,
+        doc('col/doc1', 13, { foo: 'newBar' }, 13).setHasCommittedMutations()
+      )
+      .toContain(
+        doc('col/doc1', 13, { foo: 'newBar' }, 13).setHasCommittedMutations(),
+        compareDocsWithCreateTime
+      )
+      .after(docAddedRemoteEvent(doc('col/doc1', 14, { foo: 'baz' }, 5), [2]))
+      .toReturnChangedWithDocComparator(
+        compareDocsWithCreateTime,
+        doc('col/doc1', 14, { foo: 'baz' }, 5)
+      )
+      .toContain(
+        doc('col/doc1', 14, { foo: 'baz' }, 5),
+        compareDocsWithCreateTime
+      )
+      .finish();
+  });
+
+  it('handles createTime for Set -> RemoteEvent -> Ack', () => {
+    if (gcIsEager) {
+      return;
+    }
+
+    return expectLocalStore()
+      .after(setMutation('col/doc1', { foo: 'newBar' }))
+      .after(docAddedRemoteEvent(doc('col/doc1', 13, { foo: 'baz' }, 5), [2]))
+      .afterAcknowledgingMutation({ documentVersion: 14 })
+      .afterExecutingQuery(query('col'))
+      .toReturnChangedWithDocComparator(
+        compareDocsWithCreateTime,
+        doc('col/doc1', 14, { foo: 'newBar' }, 5).setHasCommittedMutations()
+      )
+      .toContain(
+        doc('col/doc1', 14, { foo: 'newBar' }, 5).setHasCommittedMutations(),
+        compareDocsWithCreateTime
+      )
+      .finish();
+  });
+
+  it('saves updateTime as createTime when recreating a deleted doc', async () => {
+    if (gcIsEager) {
+      return;
+    }
+
+    return (
+      expectLocalStore()
+        .afterAllocatingQuery(query('col'))
+        .toReturnTargetId(2)
+        .after(docAddedRemoteEvent(deletedDoc('col/doc1', 12), [2]))
+        .toReturnChanged(deletedDoc('col/doc1', 12))
+        .toContain(deletedDoc('col/doc1', 12))
+        .after(setMutation('col/doc1', { foo: 'newBar' }))
+        .toReturnChangedWithDocComparator(
+          compareDocsWithCreateTime,
+          doc('col/doc1', 12, { foo: 'newBar' }, 12).setHasLocalMutations()
+        )
+        .toContain(
+          doc('col/doc1', 12, { foo: 'newBar' }, 12).setHasLocalMutations(),
+          compareDocsWithCreateTime
+        )
+        .afterAcknowledgingMutation({ documentVersion: 13 })
+        // We haven't seen the remote event yet
+        .toReturnChangedWithDocComparator(
+          compareDocsWithCreateTime,
+          doc('col/doc1', 13, { foo: 'newBar' }, 13).setHasCommittedMutations()
+        )
+        .toContain(
+          doc('col/doc1', 13, { foo: 'newBar' }, 13).setHasCommittedMutations(),
+          compareDocsWithCreateTime
+        )
+        .finish()
+    );
+  });
+
+  it('document createTime is preserved through Set -> Ack -> Patch -> Ack', () => {
+    if (gcIsEager) {
+      return;
+    }
+
+    return expectLocalStore()
+      .after(setMutation('col/doc1', { foo: 'newBar' }))
+      .afterAcknowledgingMutation({ documentVersion: 13 })
+      .afterExecutingQuery(query('col'))
+      .toReturnChangedWithDocComparator(
+        compareDocsWithCreateTime,
+        doc('col/doc1', 13, { foo: 'newBar' }, 13).setHasCommittedMutations()
+      )
+      .toContain(
+        doc('col/doc1', 13, { foo: 'newBar' }, 13).setHasCommittedMutations(),
+        compareDocsWithCreateTime
+      )
+      .afterMutations([patchMutation('col/doc1', { 'likes': 1 })])
+      .toReturnChangedWithDocComparator(
+        compareDocsWithCreateTime,
+        doc(
+          'col/doc1',
+          13,
+          { foo: 'newBar', likes: 1 },
+          13
+        ).setHasLocalMutations()
+      )
+      .toContain(
+        doc(
+          'col/doc1',
+          13,
+          { foo: 'newBar', likes: 1 },
+          13
+        ).setHasLocalMutations(),
+        compareDocsWithCreateTime
+      )
+      .afterAcknowledgingMutation({ documentVersion: 14 })
+      .toReturnChangedWithDocComparator(
+        compareDocsWithCreateTime,
+        doc(
+          'col/doc1',
+          14,
+          { foo: 'newBar', likes: 1 },
+          13
+        ).setHasCommittedMutations()
+      )
+      .toContain(
+        doc(
+          'col/doc1',
+          14,
+          { foo: 'newBar', likes: 1 },
+          13
+        ).setHasCommittedMutations(),
+        compareDocsWithCreateTime
+      )
+      .finish();
+  });
+
+  it('document createTime is preserved through Doc Added -> Patch -> Ack', () => {
+    if (gcIsEager) {
+      return;
+    }
+    return expectLocalStore()
+      .afterAllocatingQuery(query('col'))
+      .toReturnTargetId(2)
+      .after(docAddedRemoteEvent(doc('col/doc1', 12, { foo: 'bar' }, 5), [2]))
+      .toReturnChangedWithDocComparator(
+        compareDocsWithCreateTime,
+        doc('col/doc1', 12, { foo: 'bar' }, 5)
+      )
+      .toContain(
+        doc('col/doc1', 12, { foo: 'bar' }, 5),
+        compareDocsWithCreateTime
+      )
+      .afterMutations([patchMutation('col/doc1', { 'likes': 1 })])
+      .toReturnChangedWithDocComparator(
+        compareDocsWithCreateTime,
+        doc('col/doc1', 13, { foo: 'bar', likes: 1 }, 5).setHasLocalMutations()
+      )
+      .toContain(
+        doc('col/doc1', 13, { foo: 'bar', likes: 1 }, 5).setHasLocalMutations(),
+        compareDocsWithCreateTime
+      )
+      .afterAcknowledgingMutation({ documentVersion: 14 })
+      .toReturnChangedWithDocComparator(
+        compareDocsWithCreateTime,
+        doc(
+          'col/doc1',
+          14,
+          { foo: 'bar', likes: 1 },
+          5
+        ).setHasCommittedMutations()
+      )
+      .toContain(
+        doc(
+          'col/doc1',
+          14,
+          { foo: 'bar', likes: 1 },
+          5
+        ).setHasCommittedMutations(),
+        compareDocsWithCreateTime
+      )
+      .finish();
+  });
+
+  it('deeply nested server timestamps do not cause stack overflow', async () => {
+    const timestamp = Timestamp.now();
+    const initialServerTimestamp = serverTimestamp(timestamp, null);
+    const value: ObjectValue = ObjectValue.empty();
+    value.set(
+      field('timestamp'),
+      serverTimestamp(timestamp, initialServerTimestamp)
+    );
+
+    const mutations: PatchMutation[] = [];
+    for (let i = 0; i < 100; ++i) {
+      mutations.push(
+        new PatchMutation(
+          key('foo/bar'),
+          value,
+          new FieldMask([field('timestamp')]),
+          Precondition.none(),
+          [
+            new FieldTransform(
+              field('timestamp'),
+              new ServerTimestampTransform()
+            )
+          ]
+        )
+      );
+    }
+    await expect(expectLocalStore().afterMutations(mutations).finish()).to.not
+      .be.eventually.rejected;
+  });
+
   it('uses target mapping to execute queries', () => {
     if (gcIsEager) {
       return;
@@ -1801,10 +2335,10 @@ function genericLocalStoreTests(
         .afterAcknowledgingMutation({ documentVersion: 10 })
         .afterAcknowledgingMutation({ documentVersion: 10 })
         .afterExecutingQuery(query1)
-        // Execute the query, but note that we read all existing documents
+        // Execute the query, but note that we read matching documents
         // from the RemoteDocumentCache since we do not yet have target
         // mapping.
-        .toHaveRead({ documentsByCollection: 3 })
+        .toHaveRead({ documentsByCollection: 2 })
         .after(
           docAddedRemoteEvent(
             [

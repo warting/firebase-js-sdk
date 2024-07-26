@@ -21,19 +21,24 @@ import { _createError } from '../core/util/assert';
 import { FirebaseApp, getApp, _getProvider } from '@firebase/app';
 import { Auth } from '../model/public_types';
 
-import { initializeAuth, inMemoryPersistence } from '..';
+import { initializeAuth, inMemoryPersistence, connectAuthEmulator } from '..';
 import { registerAuth } from '../core/auth/register';
 import { ClientPlatform } from '../core/util/version';
 import { AuthImpl } from '../core/auth/auth_impl';
 
 import { FetchProvider } from '../core/util/fetch_provider';
-import * as fetchImpl from 'node-fetch';
+import { getDefaultEmulatorHost } from '@firebase/util';
+import {
+  fetch as undiciFetch,
+  Headers as undiciHeaders,
+  Response as undiciResponse
+} from 'undici';
 
 // Initialize the fetch polyfill, the types are slightly off so just cast and hope for the best
 FetchProvider.initialize(
-  fetchImpl.default as unknown as typeof fetch,
-  fetchImpl.Headers as unknown as typeof Headers,
-  fetchImpl.Response as unknown as typeof Response
+  undiciFetch as unknown as typeof fetch,
+  undiciHeaders as unknown as typeof Headers,
+  undiciResponse as unknown as typeof Response
 );
 
 // First, we set up the various platform-specific features for Node (register
@@ -46,7 +51,14 @@ export function getAuth(app: FirebaseApp = getApp()): Auth {
     return provider.getImmediate();
   }
 
-  return initializeAuth(app);
+  const auth = initializeAuth(app);
+
+  const authEmulatorHost = getDefaultEmulatorHost('auth');
+  if (authEmulatorHost) {
+    connectAuthEmulator(auth, `http://${authEmulatorHost}`);
+  }
+
+  return auth;
 }
 
 registerAuth(ClientPlatform.NODE);
@@ -93,6 +105,7 @@ export const linkWithRedirect = fail;
 export const reauthenticateWithRedirect = fail;
 export const getRedirectResult = fail;
 export const RecaptchaVerifier = FailClass;
+export const initializeRecaptchaConfig = fail;
 export class PhoneMultiFactorGenerator {
   static assertion(): unknown {
     throw NOT_AVAILABLE_ERROR;

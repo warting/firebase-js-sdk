@@ -407,12 +407,14 @@ export const V13_STORES = [
   DbNamedQueryStore,
   DbDocumentOverlayStore
 ];
-export const V14_STORES = [
-  ...V13_STORES,
+export const V14_STORES = V13_STORES;
+export const V15_STORES = [
+  ...V14_STORES,
   DbIndexConfigurationStore,
   DbIndexStateStore,
   DbIndexEntryStore
 ];
+export const V16_STORES = V15_STORES;
 
 /**
  * The list of all default IndexedDB stores used throughout the SDK. This is
@@ -423,7 +425,11 @@ export const ALL_STORES = V12_STORES;
 
 /** Returns the object stores for the provided schema. */
 export function getObjectStores(schemaVersion: number): string[] {
-  if (schemaVersion === 14) {
+  if (schemaVersion === 16) {
+    return V16_STORES;
+  } else if (schemaVersion === 15) {
+    return V15_STORES;
+  } else if (schemaVersion === 14) {
     return V14_STORES;
   } else if (schemaVersion === 13) {
     return V13_STORES;

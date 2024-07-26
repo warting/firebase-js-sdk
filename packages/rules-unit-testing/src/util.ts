@@ -72,7 +72,7 @@ export async function withFunctionTriggersDisabled<TResult>(
   if (!hub) {
     throw new Error(
       'Please specify the Emulator Hub host and port via arguments or set the environment ' +
-        `varible ${EMULATOR_HOST_ENV_VARS.hub}!`
+        `variable ${EMULATOR_HOST_ENV_VARS.hub}!`
     );
   }
 
@@ -162,7 +162,7 @@ export function assertFails(pr: Promise<any>): Promise<any> {
 }
 
 /**
- * Assert the promise to be rejected with a "permission denied" error.
+ * Assert the promise to be successful.
  *
  * This is a no-op function returning the passed promise as-is, but can be used for documentational
  * purposes in test code to emphasize that a certain request should succeed (e.g. allowed by rules).

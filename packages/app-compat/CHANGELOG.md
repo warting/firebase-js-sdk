@@ -1,5 +1,434 @@
 # @firebase/app-compat
 
+## 0.2.37
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @firebase/app@0.10.7
+
+## 0.2.36
+
+### Patch Changes
+
+- Updated dependencies [[`192561b15`](https://github.com/firebase/firebase-js-sdk/commit/192561b1552a08840d8e341f30f3dbe275465558), [`ed1c99379`](https://github.com/firebase/firebase-js-sdk/commit/ed1c993796cf7d7544b9f9ac8ffde71a13324aaf), [`192561b15`](https://github.com/firebase/firebase-js-sdk/commit/192561b1552a08840d8e341f30f3dbe275465558), [`f01806221`](https://github.com/firebase/firebase-js-sdk/commit/f01806221bcf1edb4356c5901ee65ba322851981)]:
+  - @firebase/util@1.9.7
+  - @firebase/app@0.10.6
+  - @firebase/component@0.6.8
+
+## 0.2.35
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @firebase/app@0.10.5
+
+## 0.2.34
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @firebase/app@0.10.4
+
+## 0.2.33
+
+### Patch Changes
+
+- [`ab883d016`](https://github.com/firebase/firebase-js-sdk/commit/ab883d016015de0436346f586d8442b5703771b7) [#8237](https://github.com/firebase/firebase-js-sdk/pull/8237) - Bump all packages so staging works.
+
+- Updated dependencies [[`506b8a6ab`](https://github.com/firebase/firebase-js-sdk/commit/506b8a6abf662d74c2085fb729cace57d861ed17), [`ab883d016`](https://github.com/firebase/firebase-js-sdk/commit/ab883d016015de0436346f586d8442b5703771b7)]:
+  - @firebase/app@0.10.3
+  - @firebase/component@0.6.7
+  - @firebase/logger@0.4.2
+  - @firebase/util@1.9.6
+
+## 0.2.32
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @firebase/app@0.10.2
+
+## 0.2.31
+
+### Patch Changes
+
+- Updated dependencies [[`6d31930b3`](https://github.com/firebase/firebase-js-sdk/commit/6d31930b3abe1588ae81a5c14b59cd386fddc718), [`ad8d5470d`](https://github.com/firebase/firebase-js-sdk/commit/ad8d5470dad9b9ec1bcd939609da4a1c439c8414)]:
+  - @firebase/app@0.10.1
+
+## 0.2.30
+
+### Patch Changes
+
+- [`0c5150106`](https://github.com/firebase/firebase-js-sdk/commit/0c515010607bf2223b468acb94c672b1279ed1a0) [#8079](https://github.com/firebase/firebase-js-sdk/pull/8079) - Update `repository.url` field in all `package.json` files to NPM's preferred format.
+
+- Updated dependencies [[`ed84efe50`](https://github.com/firebase/firebase-js-sdk/commit/ed84efe50bfc365da8ebfacdd2b17b5cc2a9e596), [`0c5150106`](https://github.com/firebase/firebase-js-sdk/commit/0c515010607bf2223b468acb94c672b1279ed1a0)]:
+  - @firebase/app@0.10.0
+  - @firebase/component@0.6.6
+  - @firebase/logger@0.4.1
+  - @firebase/util@1.9.5
+
+## 0.2.29
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @firebase/app@0.9.29
+
+## 0.2.28
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @firebase/app@0.9.28
+
+## 0.2.27
+
+### Patch Changes
+
+- Updated dependencies [[`3f8cbcd18`](https://github.com/firebase/firebase-js-sdk/commit/3f8cbcd18f47fcae8c0d8060fd8c245c025784c0), [`434f8418c`](https://github.com/firebase/firebase-js-sdk/commit/434f8418c3db3ae98489a8461c437c248c039070)]:
+  - @firebase/app@0.9.27
+  - @firebase/util@1.9.4
+  - @firebase/component@0.6.5
+
+## 0.2.26
+
+### Patch Changes
+
+- Updated dependencies [[`16728cf3c`](https://github.com/firebase/firebase-js-sdk/commit/16728cf3c6b4e358dc3d12f80623e5966f104c31)]:
+  - @firebase/app@0.9.26
+
+## 0.2.25
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @firebase/app@0.9.25
+
+## 0.2.24
+
+### Patch Changes
+
+- Updated dependencies [[`e9ff107ee`](https://github.com/firebase/firebase-js-sdk/commit/e9ff107eedbb9ec695ddc35e45bdd62734735674)]:
+  - @firebase/app@0.9.24
+
+## 0.2.23
+
+### Patch Changes
+
+- Updated dependencies [[`5c7fa8491`](https://github.com/firebase/firebase-js-sdk/commit/5c7fa84912ac8a9652b82ebf88eb483dd44977a8)]:
+  - @firebase/app@0.9.23
+
+## 0.2.22
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @firebase/app@0.9.22
+
+## 0.2.21
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @firebase/app@0.9.21
+
+## 0.2.20
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @firebase/app@0.9.20
+
+## 0.2.19
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @firebase/app@0.9.19
+
+## 0.2.18
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @firebase/app@0.9.18
+
+## 0.2.17
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @firebase/app@0.9.17
+
+## 0.2.16
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @firebase/app@0.9.16
+
+## 0.2.15
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @firebase/app@0.9.15
+
+## 0.2.14
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @firebase/app@0.9.14
+
+## 0.2.13
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @firebase/app@0.9.13
+
+## 0.2.12
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @firebase/app@0.9.12
+
+## 0.2.11
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @firebase/app@0.9.11
+
+## 0.2.10
+
+### Patch Changes
+
+- Updated dependencies [[`466d3670a`](https://github.com/firebase/firebase-js-sdk/commit/466d3670ae32b61e3e0319bb73407bcd7ac90290), [`e0551fa13`](https://github.com/firebase/firebase-js-sdk/commit/e0551fa13c9ae1556edf0ffb967f2f9e661f18a0)]:
+  - @firebase/app@0.9.10
+
+## 0.2.9
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @firebase/app@0.9.9
+
+## 0.2.8
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @firebase/app@0.9.8
+
+## 0.2.7
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @firebase/app@0.9.7
+
+## 0.2.6
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @firebase/app@0.9.6
+
+## 0.2.5
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @firebase/app@0.9.5
+
+## 0.2.4
+
+### Patch Changes
+
+- Updated dependencies [[`c59f537b1`](https://github.com/firebase/firebase-js-sdk/commit/c59f537b1262b5d7997291b8c1e9324d378effb6)]:
+  - @firebase/util@1.9.3
+  - @firebase/app@0.9.4
+  - @firebase/component@0.6.4
+
+## 0.2.3
+
+### Patch Changes
+
+- Updated dependencies [[`d071bd1ac`](https://github.com/firebase/firebase-js-sdk/commit/d071bd1acaa0583b4dd3454387fc58eafddb5c30)]:
+  - @firebase/util@1.9.2
+  - @firebase/app@0.9.3
+  - @firebase/component@0.6.3
+
+## 0.2.2
+
+### Patch Changes
+
+- Updated dependencies [[`0bab0b7a7`](https://github.com/firebase/firebase-js-sdk/commit/0bab0b7a786d1563bf665904c7097d1fe06efce5)]:
+  - @firebase/util@1.9.1
+  - @firebase/app@0.9.2
+  - @firebase/component@0.6.2
+
+## 0.2.1
+
+### Patch Changes
+
+- Updated dependencies [[`d4114a4f7`](https://github.com/firebase/firebase-js-sdk/commit/d4114a4f7da3f469c0c900416ac8beee58885ec3), [`06dc1364d`](https://github.com/firebase/firebase-js-sdk/commit/06dc1364d7560f4c563e1ccc89af9cad4cd91df8)]:
+  - @firebase/util@1.9.0
+  - @firebase/app@0.9.1
+  - @firebase/component@0.6.1
+
+## 0.2.0
+
+### Minor Changes
+
+- [`1625f7a95`](https://github.com/firebase/firebase-js-sdk/commit/1625f7a95cc3ffb666845db0a8044329be74b5be) [#6799](https://github.com/firebase/firebase-js-sdk/pull/6799) - Update TypeScript version to 4.7.4.
+
+### Patch Changes
+
+- Updated dependencies [[`c20633ed3`](https://github.com/firebase/firebase-js-sdk/commit/c20633ed35056cbadc9d65d9ceddf4e28d1ea666), [`1625f7a95`](https://github.com/firebase/firebase-js-sdk/commit/1625f7a95cc3ffb666845db0a8044329be74b5be)]:
+  - @firebase/util@1.8.0
+  - @firebase/app@0.9.0
+  - @firebase/component@0.6.0
+  - @firebase/logger@0.4.0
+
+## 0.1.39
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @firebase/app@0.8.4
+
+## 0.1.38
+
+### Patch Changes
+
+- [`4af28c1a4`](https://github.com/firebase/firebase-js-sdk/commit/4af28c1a42bd25ce2353f694ca1724c6101cbce5) [#6682](https://github.com/firebase/firebase-js-sdk/pull/6682) - Upgrade TypeScript to 4.7.4.
+
+- Updated dependencies [[`4af28c1a4`](https://github.com/firebase/firebase-js-sdk/commit/4af28c1a42bd25ce2353f694ca1724c6101cbce5)]:
+  - @firebase/app@0.8.3
+  - @firebase/component@0.5.21
+  - @firebase/logger@0.3.4
+  - @firebase/util@1.7.3
+
+## 0.1.37
+
+### Patch Changes
+
+- Updated dependencies [[`807f06aa2`](https://github.com/firebase/firebase-js-sdk/commit/807f06aa26438a91aaea08fd38efb6c706bb8a5d)]:
+  - @firebase/util@1.7.2
+  - @firebase/app@0.8.2
+  - @firebase/component@0.5.20
+
+## 0.1.36
+
+### Patch Changes
+
+- Updated dependencies [[`171b78b76`](https://github.com/firebase/firebase-js-sdk/commit/171b78b762826a640d267dd4dd172ad9459c4561), [`29d034072`](https://github.com/firebase/firebase-js-sdk/commit/29d034072c20af394ce384e42aa10a37d5dfcb18)]:
+  - @firebase/util@1.7.1
+  - @firebase/app@0.8.1
+  - @firebase/component@0.5.19
+
+## 0.1.35
+
+### Patch Changes
+
+- Updated dependencies [[`fdd4ab464`](https://github.com/firebase/firebase-js-sdk/commit/fdd4ab464b59a107bdcc195df3f01e32efd89ed4)]:
+  - @firebase/app@0.8.0
+  - @firebase/util@1.7.0
+  - @firebase/component@0.5.18
+
+## 0.1.34
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @firebase/app@0.7.33
+
+## 0.1.33
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @firebase/app@0.7.32
+
+## 0.1.32
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @firebase/app@0.7.31
+
+## 0.1.31
+
+### Patch Changes
+
+- Updated dependencies [[`82a6add13`](https://github.com/firebase/firebase-js-sdk/commit/82a6add1354fe7e4ac1d444157ac027cdd41da6e)]:
+  - @firebase/app@0.7.30
+
+## 0.1.30
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @firebase/app@0.7.29
+
+## 0.1.29
+
+### Patch Changes
+
+- Updated dependencies [[`b12af44a5`](https://github.com/firebase/firebase-js-sdk/commit/b12af44a5c7500e1192d6cc1a4afc4d77efadbaf)]:
+  - @firebase/util@1.6.3
+  - @firebase/app@0.7.28
+  - @firebase/component@0.5.17
+
+## 0.1.28
+
+### Patch Changes
+
+- Updated dependencies [[`efe2000fc`](https://github.com/firebase/firebase-js-sdk/commit/efe2000fc499e2c85c4e5e0fef6741ff3bad2eb0)]:
+  - @firebase/util@1.6.2
+  - @firebase/app@0.7.27
+  - @firebase/component@0.5.16
+
+## 0.1.27
+
+### Patch Changes
+
+- [`2cd1cc76f`](https://github.com/firebase/firebase-js-sdk/commit/2cd1cc76f2a308135cd60f424fe09084a34b5cb5) [#6307](https://github.com/firebase/firebase-js-sdk/pull/6307) (fixes [#6300](https://github.com/firebase/firebase-js-sdk/issues/6300)) - fix: add type declarations to exports field
+
+- Updated dependencies [[`2cd1cc76f`](https://github.com/firebase/firebase-js-sdk/commit/2cd1cc76f2a308135cd60f424fe09084a34b5cb5)]:
+  - @firebase/app@0.7.26
+  - @firebase/component@0.5.15
+  - @firebase/logger@0.3.3
+  - @firebase/util@1.6.1
+
+## 0.1.26
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @firebase/app@0.7.25
+
+## 0.1.25
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @firebase/app@0.7.24
+
+## 0.1.24
+
+### Patch Changes
+
+- Updated dependencies [[`9c5c9c36d`](https://github.com/firebase/firebase-js-sdk/commit/9c5c9c36da80b98b73cfd60ef2e2965087e9f801)]:
+  - @firebase/util@1.6.0
+  - @firebase/app@0.7.23
+  - @firebase/component@0.5.14
+
 ## 0.1.23
 
 ### Patch Changes

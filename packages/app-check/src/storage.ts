@@ -15,9 +15,8 @@
  * limitations under the License.
  */
 
-import { uuidv4 } from './util';
 import { FirebaseApp } from '@firebase/app';
-import { isIndexedDBAvailable } from '@firebase/util';
+import { isIndexedDBAvailable, uuidv4 } from '@firebase/util';
 import {
   readDebugTokenFromIndexedDB,
   readTokenFromIndexedDB,
@@ -52,7 +51,7 @@ export async function readTokenFromStorage(
  */
 export function writeTokenToStorage(
   app: FirebaseApp,
-  token: AppCheckTokenInternal
+  token?: AppCheckTokenInternal
 ): Promise<void> {
   if (isIndexedDBAvailable()) {
     return writeTokenToIndexedDB(app, token).catch(e => {
@@ -80,7 +79,7 @@ export async function readOrCreateDebugTokenFromStorage(): Promise<string> {
     // create a new debug token
     const newToken = uuidv4();
     // We don't need to block on writing to indexeddb
-    // In case persistence failed, a new debug token will be generated everytime the page is refreshed.
+    // In case persistence failed, a new debug token will be generated every time the page is refreshed.
     // It renders the debug token useless because you have to manually register(whitelist) the new token in the firebase console again and again.
     // If you see this error trying to use debug token, it probably means you are using a browser that doesn't support indexeddb.
     // You should switch to a different browser that supports indexeddb

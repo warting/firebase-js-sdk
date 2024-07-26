@@ -38,6 +38,7 @@ import { _open, AuthPopup } from './util/popup';
 import { _getRedirectResult } from './strategies/redirect';
 import { _getRedirectUrl } from '../core/util/handler';
 import { _isIOS, _isMobileBrowser, _isSafari } from '../core/util/browser';
+import { _overrideRedirectResult } from '../core/strategies/redirect';
 
 /**
  * The special web storage event
@@ -74,7 +75,7 @@ class BrowserPopupRedirectResolver implements PopupRedirectResolverInternal {
       '_initialize() not called before _openPopup()'
     );
 
-    const url = _getRedirectUrl(
+    const url = await _getRedirectUrl(
       auth,
       provider,
       authType,
@@ -91,9 +92,14 @@ class BrowserPopupRedirectResolver implements PopupRedirectResolverInternal {
     eventId?: string
   ): Promise<never> {
     await this._originValidation(auth);
-    _setWindowLocation(
-      _getRedirectUrl(auth, provider, authType, _getCurrentUrl(), eventId)
+    const url = await _getRedirectUrl(
+      auth,
+      provider,
+      authType,
+      _getCurrentUrl(),
+      eventId
     );
+    _setWindowLocation(url);
     return new Promise(() => {});
   }
 
@@ -176,12 +182,18 @@ class BrowserPopupRedirectResolver implements PopupRedirectResolverInternal {
   }
 
   _completeRedirectFn = _getRedirectResult;
+
+  _overrideRedirectResult = _overrideRedirectResult;
 }
 
 /**
  * An implementation of {@link PopupRedirectResolver} suitable for browser
  * based applications.
  *
+ * @remarks
+ * This method does not work in a Node.js environment.
+ *
  * @public
  */
-export const browserPopupRedirectResolver: PopupRedirectResolver = BrowserPopupRedirectResolver;
+export const browserPopupRedirectResolver: PopupRedirectResolver =
+  BrowserPopupRedirectResolver;

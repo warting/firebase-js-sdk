@@ -93,6 +93,14 @@ export function createSubscribe<T>(executor: Executor<T>, onNoObservers?: Execut
 // @public
 export const decode: (token: string) => DecodedToken;
 
+// Warning: (ae-missing-release-tag) "DecodeBase64StringError" is exported by the package, but it is missing a release tag (@alpha, @beta, @public, or @internal)
+//
+// @public
+export class DecodeBase64StringError extends Error {
+    // (undocumented)
+    readonly name = "DecodeBase64StringError";
+}
+
 // Warning: (ae-missing-release-tag) "deepCopy" is exported by the package, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
 // @public
@@ -173,10 +181,28 @@ export function errorPrefix(fnName: string, argName: string): string;
 // @public (undocumented)
 export type Executor<T> = (observer: Observer<T>) => void;
 
+// @public
+export type ExperimentalKey = 'authTokenSyncURL' | 'authIdTokenMaxAge';
+
 // Warning: (ae-missing-release-tag) "extractQuerystring" is exported by the package, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
 // @public
 export function extractQuerystring(url: string): string;
+
+// @public
+export interface FirebaseDefaults {
+    // (undocumented)
+    [key: string]: unknown;
+    // (undocumented)
+    _authIdTokenMaxAge?: number;
+    // (undocumented)
+    _authTokenSyncURL?: string;
+    // (undocumented)
+    config?: Record<string, string>;
+    // (undocumented)
+    emulatorHosts?: Record<string, string>;
+    forceEnvironment?: 'browser' | 'node';
+}
 
 // Warning: (ae-missing-release-tag) "FirebaseError" is exported by the package, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
@@ -195,8 +221,21 @@ export class FirebaseError extends Error {
 // @public
 export type FirebaseSignInProvider = 'custom' | 'email' | 'password' | 'phone' | 'anonymous' | 'google.com' | 'facebook.com' | 'github.com' | 'twitter.com' | 'microsoft.com' | 'apple.com';
 
-// Warning: (ae-missing-release-tag) "getGlobal" is exported by the package, but it is missing a release tag (@alpha, @beta, @public, or @internal)
-//
+// @public
+export const getDefaultAppConfig: () => Record<string, string> | undefined;
+
+// @public
+export const getDefaultEmulatorHost: (productName: string) => string | undefined;
+
+// @public
+export const getDefaultEmulatorHostnameAndPort: (productName: string) => [hostname: string, port: number] | undefined;
+
+// @public
+export const getDefaults: () => FirebaseDefaults | undefined;
+
+// @public
+export const getExperimentalSetting: <T extends ExperimentalKey>(name: T) => FirebaseDefaults[`_${T}`];
+
 // @public
 export function getGlobal(): typeof globalThis;
 
@@ -290,6 +329,11 @@ export const isValidFormat: (token: string) => boolean;
 // @public
 export const isValidTimestamp: (token: string) => boolean;
 
+// Warning: (ae-missing-release-tag) "isWebWorker" is exported by the package, but it is missing a release tag (@alpha, @beta, @public, or @internal)
+//
+// @public
+export function isWebWorker(): boolean;
+
 // Warning: (ae-missing-release-tag) "jsonEval" is exported by the package, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
 // @public
@@ -345,6 +389,11 @@ export function ordinal(i: number): string;
 //
 // @public (undocumented)
 export type PartialObserver<T> = Partial<Observer<T>>;
+
+// Warning: (ae-internal-missing-underscore) The name "promiseWithTimeout" should be prefixed with an underscore because the declaration is marked as @internal
+//
+// @internal
+export function promiseWithTimeout<T>(promise: Promise<T>, timeInMS?: number): Promise<T>;
 
 // Warning: (ae-missing-release-tag) "querystring" is exported by the package, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
@@ -421,6 +470,9 @@ export interface Subscribe<T> {
 //
 // @public (undocumented)
 export type Unsubscribe = () => void;
+
+// @public
+export const uuidv4: () => string;
 
 // Warning: (ae-missing-release-tag) "validateArgCount" is exported by the package, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //

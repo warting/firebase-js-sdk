@@ -31,16 +31,14 @@ import {
   indexedDbStoragePrefix,
   IndexedDbPersistence
 } from '../../../src/local/indexeddb_persistence';
+import { LocalStore } from '../../../src/local/local_store';
 import { LruParams } from '../../../src/local/lru_garbage_collector';
 import {
   MemoryEagerDelegate,
   MemoryLruDelegate,
   MemoryPersistence
 } from '../../../src/local/memory_persistence';
-import {
-  GarbageCollectionScheduler,
-  Persistence
-} from '../../../src/local/persistence';
+import { Scheduler, Persistence } from '../../../src/local/persistence';
 import { PersistencePromise } from '../../../src/local/persistence_promise';
 import {
   PersistenceTransaction,
@@ -55,6 +53,7 @@ import { Mutation } from '../../../src/model/mutation';
 import { encodeBase64 } from '../../../src/platform/base64';
 import { newSerializer } from '../../../src/platform/serializer';
 import * as api from '../../../src/protos/firestore_proto_api';
+import { ApiClientObjectMap } from '../../../src/protos/firestore_proto_api';
 import { Connection, Stream } from '../../../src/remote/connection';
 import { Datastore, newDatastore } from '../../../src/remote/datastore';
 import { WriteRequest } from '../../../src/remote/persistent_stream';
@@ -156,8 +155,16 @@ export class MockMultiTabOfflineComponentProvider extends MultiTabOfflineCompone
   }
 
   createGarbageCollectionScheduler(
-    cfg: ComponentConfiguration
-  ): GarbageCollectionScheduler | null {
+    cfg: ComponentConfiguration,
+    localStore: LocalStore
+  ): Scheduler | null {
+    return null;
+  }
+
+  createIndexBackfillerScheduler(
+    cfg: ComponentConfiguration,
+    localStore: LocalStore
+  ): Scheduler | null {
     return null;
   }
 
@@ -201,19 +208,19 @@ export class MockMemoryOfflineComponentProvider extends MemoryOfflineComponentPr
   persistence!: MockMemoryPersistence;
   connection!: MockConnection;
 
-  constructor(private readonly gcEnabled: boolean) {
+  constructor(private readonly eagerGCEnabled: boolean) {
     super();
   }
 
   createGarbageCollectionScheduler(
     cfg: ComponentConfiguration
-  ): GarbageCollectionScheduler | null {
+  ): Scheduler | null {
     return null;
   }
 
   createPersistence(cfg: ComponentConfiguration): Persistence {
     return new MockMemoryPersistence(
-      this.gcEnabled
+      this.eagerGCEnabled
         ? MemoryEagerDelegate.factory
         : p => new MemoryLruDelegate(p, LruParams.DEFAULT),
       newSerializer(cfg.databaseInfo.databaseId)
@@ -247,11 +254,22 @@ export class MockConnection implements Connection {
 
   constructor(private queue: AsyncQueue) {}
 
+  terminate(): void {
+    // no-op
+  }
+
+  shouldResourcePathBeIncludedInRequest: boolean = false;
+
   /**
-   * Tracks the currently active watch targets as detected by the mock watch
-   * stream, as a mapping from target ID to query Target.
+   * Tracks the currently active watch targets as detected by the mock watch //
+   * stream, as a mapping from target ID to query Target. //
    */
-  activeTargets: { [targetId: number]: api.Target } = {};
+  activeTargets: {
+    [targetId: number]: {
+      target: api.Target;
+      labels?: ApiClientObjectMap<string>;
+    };
+  } = {};
 
   /** A Deferred that is resolved once watch opens. */
   watchOpen = new Deferred<void>();
@@ -390,7 +408,10 @@ export class MockConnection implements Connection {
           ++this.watchStreamRequestCount;
           if (request.addTarget) {
             const targetId = request.addTarget.targetId!;
-            this.activeTargets[targetId] = request.addTarget;
+            this.activeTargets[targetId] = {
+              target: request.addTarget,
+              labels: request.labels
+            };
           } else if (request.removeTarget) {
             delete this.activeTargets[request.removeTarget];
           } else {

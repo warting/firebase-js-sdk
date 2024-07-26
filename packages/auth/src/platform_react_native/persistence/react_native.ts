@@ -29,7 +29,7 @@ import {
  * Returns a persistence object that wraps `AsyncStorage` imported from
  * `react-native` or `@react-native-community/async-storage`, and can
  * be used in the persistence dependency field in {@link initializeAuth}.
- * 
+ *
  * @public
  */
 export function getReactNativePersistence(
@@ -40,7 +40,7 @@ export function getReactNativePersistence(
   // be able to be instantiated (as a class) using "new". That function also
   // expects the constructor to be empty. Since ReactNativeStorage requires the
   // underlying storage layer, we need to be able to create subclasses
-  // (closures, esentially) that have the storage layer but empty constructor.
+  // (closures, essentially) that have the storage layer but empty constructor.
   return class implements PersistenceInternal {
     static type: 'LOCAL' = 'LOCAL';
     readonly type: PersistenceType = PersistenceType.LOCAL;

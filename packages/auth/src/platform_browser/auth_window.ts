@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-import { Recaptcha } from './recaptcha/recaptcha';
+import { Recaptcha, GreCAPTCHATopLevel } from './recaptcha/recaptcha';
 
 /**
  * A specialized window type that melds the normal window type plus the
@@ -27,7 +27,7 @@ export type AuthWindow = {
   [T in keyof Window]: Window[T];
 } & {
   // Any known / named properties we want to add
-  grecaptcha?: Recaptcha;
+  grecaptcha?: Recaptcha | GreCAPTCHATopLevel;
   /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
   ___jsl?: Record<string, any>;
   gapi?: typeof gapi;
@@ -42,7 +42,7 @@ export type AuthWindow = {
  * we need to make sure not to mess with window unless we have to
  */
 export function _window(): AuthWindow {
-  return (window as unknown) as AuthWindow;
+  return window as unknown as AuthWindow;
 }
 
 export function _setWindowLocation(url: string): void {

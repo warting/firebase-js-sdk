@@ -41,7 +41,7 @@ export function getIdToken(user: User, forceRefresh = false): Promise<string> {
 }
 
 /**
- * Returns a deserialized JSON Web Token (JWT) used to identitfy the user to a Firebase service.
+ * Returns a deserialized JSON Web Token (JWT) used to identify the user to a Firebase service.
  *
  * @remarks
  * Returns the current token if it has not expired or if it will not expire in the next five
@@ -110,7 +110,10 @@ export function _parseToken(token: string): ParsedToken | null {
     }
     return JSON.parse(decoded);
   } catch (e) {
-    _logError('Caught error parsing JWT payload as JSON', e);
+    _logError(
+      'Caught error parsing JWT payload as JSON',
+      (e as Error)?.toString()
+    );
     return null;
   }
 }

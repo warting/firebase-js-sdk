@@ -17,19 +17,27 @@
 
 import { CredentialsProvider } from '../api/credentials';
 import { User } from '../auth/user';
-import { Query, queryToTarget } from '../core/query';
+import { Aggregate } from '../core/aggregate';
+import { DatabaseId } from '../core/database_info';
+import { queryToAggregateTarget, Query, queryToTarget } from '../core/query';
 import { Document } from '../model/document';
 import { DocumentKey } from '../model/document_key';
 import { Mutation } from '../model/mutation';
+import { ResourcePath } from '../model/path';
 import {
+  ApiClientObjectMap,
   BatchGetDocumentsRequest as ProtoBatchGetDocumentsRequest,
   BatchGetDocumentsResponse as ProtoBatchGetDocumentsResponse,
+  RunAggregationQueryRequest as ProtoRunAggregationQueryRequest,
+  RunAggregationQueryResponse as ProtoRunAggregationQueryResponse,
   RunQueryRequest as ProtoRunQueryRequest,
-  RunQueryResponse as ProtoRunQueryResponse
+  RunQueryResponse as ProtoRunQueryResponse,
+  Value
 } from '../protos/firestore_proto_api';
 import { debugAssert, debugCast, hardAssert } from '../util/assert';
 import { AsyncQueue } from '../util/async_queue';
 import { Code, FirestoreError } from '../util/error';
+import { isNullOrUndefined } from '../util/types';
 
 import { Connection } from './connection';
 import {
@@ -41,11 +49,12 @@ import {
 import {
   fromDocument,
   fromBatchGetDocumentsResponse,
-  getEncodedDatabaseId,
   JsonProtoSerializer,
   toMutation,
   toName,
-  toQueryTarget
+  toQueryTarget,
+  toResourcePath,
+  toRunAggregationQueryRequest
 } from './serializer';
 
 /**
@@ -55,6 +64,7 @@ import {
  */
 export abstract class Datastore {
   abstract terminate(): void;
+  abstract serializer: JsonProtoSerializer;
 }
 
 /**
@@ -86,7 +96,8 @@ class DatastoreImpl extends Datastore {
   /** Invokes the provided RPC with auth and AppCheck tokens. */
   invokeRPC<Req, Resp>(
     rpcName: string,
-    path: string,
+    databaseId: DatabaseId,
+    resourcePath: ResourcePath,
     request: Req
   ): Promise<Resp> {
     this.verifyInitialized();
@@ -97,7 +108,7 @@ class DatastoreImpl extends Datastore {
       .then(([authToken, appCheckToken]) => {
         return this.connection.invokeRPC<Req, Resp>(
           rpcName,
-          path,
+          toResourcePath(databaseId, resourcePath),
           request,
           authToken,
           appCheckToken
@@ -119,8 +130,10 @@ class DatastoreImpl extends Datastore {
   /** Invokes the provided RPC with streamed results with auth and AppCheck tokens. */
   invokeStreamingRPC<Req, Resp>(
     rpcName: string,
-    path: string,
-    request: Req
+    databaseId: DatabaseId,
+    resourcePath: ResourcePath,
+    request: Req,
+    expectedResponseCount?: number
   ): Promise<Resp[]> {
     this.verifyInitialized();
     return Promise.all([
@@ -130,10 +143,11 @@ class DatastoreImpl extends Datastore {
       .then(([authToken, appCheckToken]) => {
         return this.connection.invokeStreamingRPC<Req, Resp>(
           rpcName,
-          path,
+          toResourcePath(databaseId, resourcePath),
           request,
           authToken,
-          appCheckToken
+          appCheckToken,
+          expectedResponseCount
         );
       })
       .catch((error: FirestoreError) => {
@@ -151,6 +165,7 @@ class DatastoreImpl extends Datastore {
 
   terminate(): void {
     this.terminated = true;
+    this.connection.terminate();
   }
 }
 
@@ -175,11 +190,15 @@ export async function invokeCommitRpc(
   mutations: Mutation[]
 ): Promise<void> {
   const datastoreImpl = debugCast(datastore, DatastoreImpl);
-  const path = getEncodedDatabaseId(datastoreImpl.serializer) + '/documents';
   const request = {
     writes: mutations.map(m => toMutation(datastoreImpl.serializer, m))
   };
-  await datastoreImpl.invokeRPC('Commit', path, request);
+  await datastoreImpl.invokeRPC(
+    'Commit',
+    datastoreImpl.serializer.databaseId,
+    ResourcePath.emptyPath(),
+    request
+  );
 }
 
 export async function invokeBatchGetDocumentsRpc(
@@ -187,14 +206,19 @@ export async function invokeBatchGetDocumentsRpc(
   keys: DocumentKey[]
 ): Promise<Document[]> {
   const datastoreImpl = debugCast(datastore, DatastoreImpl);
-  const path = getEncodedDatabaseId(datastoreImpl.serializer) + '/documents';
   const request = {
     documents: keys.map(k => toName(datastoreImpl.serializer, k))
   };
   const response = await datastoreImpl.invokeStreamingRPC<
     ProtoBatchGetDocumentsRequest,
     ProtoBatchGetDocumentsResponse
-  >('BatchGetDocuments', path, request);
+  >(
+    'BatchGetDocuments',
+    datastoreImpl.serializer.databaseId,
+    ResourcePath.emptyPath(),
+    request,
+    keys.length
+  );
 
   const docs = new Map<string, Document>();
   response.forEach(proto => {
@@ -215,11 +239,16 @@ export async function invokeRunQueryRpc(
   query: Query
 ): Promise<Document[]> {
   const datastoreImpl = debugCast(datastore, DatastoreImpl);
-  const request = toQueryTarget(datastoreImpl.serializer, queryToTarget(query));
+  const { queryTarget, parent } = toQueryTarget(
+    datastoreImpl.serializer,
+    queryToTarget(query)
+  );
   const response = await datastoreImpl.invokeStreamingRPC<
     ProtoRunQueryRequest,
     ProtoRunQueryResponse
-  >('RunQuery', request.parent!, { structuredQuery: request.structuredQuery });
+  >('RunQuery', datastoreImpl.serializer.databaseId, parent, {
+    structuredQuery: queryTarget.structuredQuery
+  });
   return (
     response
       // Omit RunQueryResponses that only contain readTimes.
@@ -228,6 +257,66 @@ export async function invokeRunQueryRpc(
         fromDocument(datastoreImpl.serializer, proto.document!, undefined)
       )
   );
+}
+
+export async function invokeRunAggregationQueryRpc(
+  datastore: Datastore,
+  query: Query,
+  aggregates: Aggregate[]
+): Promise<ApiClientObjectMap<Value>> {
+  const datastoreImpl = debugCast(datastore, DatastoreImpl);
+  const { request, aliasMap, parent } = toRunAggregationQueryRequest(
+    datastoreImpl.serializer,
+    queryToAggregateTarget(query),
+    aggregates
+  );
+
+  if (!datastoreImpl.connection.shouldResourcePathBeIncludedInRequest) {
+    delete request.parent;
+  }
+  const response = await datastoreImpl.invokeStreamingRPC<
+    ProtoRunAggregationQueryRequest,
+    ProtoRunAggregationQueryResponse
+  >(
+    'RunAggregationQuery',
+    datastoreImpl.serializer.databaseId,
+    parent,
+    request,
+    /*expectedResponseCount=*/ 1
+  );
+
+  // Omit RunAggregationQueryResponse that only contain readTimes.
+  const filteredResult = response.filter(proto => !!proto.result);
+
+  hardAssert(
+    filteredResult.length === 1,
+    'Aggregation fields are missing from result.'
+  );
+  debugAssert(
+    !isNullOrUndefined(filteredResult[0].result),
+    'aggregationQueryResponse.result'
+  );
+  debugAssert(
+    !isNullOrUndefined(filteredResult[0].result.aggregateFields),
+    'aggregationQueryResponse.result.aggregateFields'
+  );
+
+  // Remap the short-form aliases that were sent to the server
+  // to the client-side aliases. Users will access the results
+  // using the client-side alias.
+  const unmappedAggregateFields = filteredResult[0].result?.aggregateFields;
+  const remappedFields = Object.keys(unmappedAggregateFields).reduce<
+    ApiClientObjectMap<Value>
+  >((accumulator, key) => {
+    debugAssert(
+      !isNullOrUndefined(aliasMap[key]),
+      `'${key}' not present in aliasMap result`
+    );
+    accumulator[aliasMap[key]] = unmappedAggregateFields[key]!;
+    return accumulator;
+  }, {});
+
+  return remappedFields;
 }
 
 export function newPersistentWriteStream(

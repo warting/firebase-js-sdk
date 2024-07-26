@@ -35,6 +35,7 @@ import {
   initializeV3 as initializeRecaptchaV3,
   initializeEnterprise as initializeRecaptchaEnterprise
 } from './recaptcha';
+import { getStateReference } from './state';
 import { AppCheckProvider, AppCheckTokenInternal, ThrottleData } from './types';
 import { getDurationString } from './util';
 
@@ -73,6 +74,10 @@ export class ReCaptchaV3Provider implements AppCheckProvider {
         throw ERROR_FACTORY.create(AppCheckError.RECAPTCHA_ERROR);
       }
     );
+    // Check if a failure state was set by the recaptcha "error-callback".
+    if (!getStateReference(this._app!).reCAPTCHAState?.succeeded) {
+      throw ERROR_FACTORY.create(AppCheckError.RECAPTCHA_ERROR);
+    }
     let result;
     try {
       result = await exchangeToken(
@@ -80,7 +85,9 @@ export class ReCaptchaV3Provider implements AppCheckProvider {
         this._heartbeatServiceProvider!
       );
     } catch (e) {
-      if ((e as FirebaseError).code === AppCheckError.FETCH_STATUS_ERROR) {
+      if (
+        (e as FirebaseError).code?.includes(AppCheckError.FETCH_STATUS_ERROR)
+      ) {
         this._throttleData = setBackoff(
           Number((e as FirebaseError).customData?.httpStatus),
           this._throttleData
@@ -157,6 +164,10 @@ export class ReCaptchaEnterpriseProvider implements AppCheckProvider {
         throw ERROR_FACTORY.create(AppCheckError.RECAPTCHA_ERROR);
       }
     );
+    // Check if a failure state was set by the recaptcha "error-callback".
+    if (!getStateReference(this._app!).reCAPTCHAState?.succeeded) {
+      throw ERROR_FACTORY.create(AppCheckError.RECAPTCHA_ERROR);
+    }
     let result;
     try {
       result = await exchangeToken(
@@ -167,7 +178,9 @@ export class ReCaptchaEnterpriseProvider implements AppCheckProvider {
         this._heartbeatServiceProvider!
       );
     } catch (e) {
-      if ((e as FirebaseError).code === AppCheckError.FETCH_STATUS_ERROR) {
+      if (
+        (e as FirebaseError).code?.includes(AppCheckError.FETCH_STATUS_ERROR)
+      ) {
         this._throttleData = setBackoff(
           Number((e as FirebaseError).customData?.httpStatus),
           this._throttleData

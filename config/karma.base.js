@@ -60,7 +60,7 @@ const config = {
   // start these browsers
   // available browser launchers:
   // https://npmjs.org/browse/keyword/karma-launcher
-  browsers: ['ChromeHeadless'],
+  browsers: process.env?.BROWSERS?.split(',') ?? ['ChromeHeadless'],
 
   webpack: webpackTestConfig,
 
@@ -87,11 +87,5 @@ const config = {
 config.mochaReporter = {
   showDiff: true
 };
-// Make it easy to spot failed tests in CI
-if (process.env.CI) {
-  config.mochaReporter = {
-    output: 'minimal'
-  };
-}
 
 module.exports = config;

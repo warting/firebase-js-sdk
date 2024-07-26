@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+import { FirebaseError } from '@firebase/util';
 import { _processCredentialSavingMfaContextIfNecessary } from '../../mfa/mfa_error';
 import { OperationType } from '../../model/enums';
 import { UserInternal } from '../../model/user';
@@ -24,6 +25,8 @@ import { _assert, _fail } from '../util/assert';
 import { _parseToken } from './id_token_result';
 import { _logoutIfInvalidated } from './invalidation';
 import { UserCredentialImpl } from './user_credential_impl';
+import { _isFirebaseServerApp } from '@firebase/app';
+import { _serverAppCurrentUserOperationNotSupportedError } from '../../core/util/assert';
 
 export async function _reauthenticate(
   user: UserInternal,
@@ -31,6 +34,11 @@ export async function _reauthenticate(
   bypassAuthState = false
 ): Promise<UserCredentialImpl> {
   const { auth } = user;
+  if (_isFirebaseServerApp(auth.app)) {
+    return Promise.reject(
+      _serverAppCurrentUserOperationNotSupportedError(auth)
+    );
+  }
   const operationType = OperationType.REAUTHENTICATE;
 
   try {
@@ -54,7 +62,7 @@ export async function _reauthenticate(
     return UserCredentialImpl._forOperation(user, operationType, response);
   } catch (e) {
     // Convert user deleted error into user mismatch
-    if (e?.code === `auth/${AuthErrorCode.USER_DELETED}`) {
+    if ((e as FirebaseError)?.code === `auth/${AuthErrorCode.USER_DELETED}`) {
       _fail(auth, AuthErrorCode.USER_MISMATCH);
     }
     throw e;

@@ -35,7 +35,7 @@ export abstract class Emulator {
   constructor(
     private binaryName: string,
     private binaryUrl: string,
-    public port: number
+    public readonly port: number
   ) {
     this.cacheDirectory = path.join(os.homedir(), `.cache/firebase-js-sdk`);
     this.cacheBinaryPath = path.join(this.cacheDirectory, binaryName);
@@ -119,8 +119,8 @@ export abstract class Emulator {
         if (elapsed > timeout) {
           reject(`Emulator not ready after ${timeout}s. Exiting ...`);
         } else {
-          console.log(`Ping emulator at [http://localhost:${this.port}] ...`);
-          fetch(`http://localhost:${this.port}`).then(
+          console.log(`Ping emulator at [http://127.0.0.1:${this.port}] ...`);
+          fetch(`http://127.0.0.1:${this.port}`).then(
             () => {
               // Database and Firestore emulators will return 400 and 200 respectively.
               // As long as we get a response back, it means the emulator is ready.

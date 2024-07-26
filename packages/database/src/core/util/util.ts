@@ -468,7 +468,7 @@ export const isWindowsStoreApp = function (): boolean {
 };
 
 /**
- * Converts a server error code to a Javascript Error
+ * Converts a server error code to a JavaScript Error
  */
 export function errorForServerCode(code: string, query: QueryContext): Error {
   let reason = 'Unknown Error';
@@ -501,7 +501,7 @@ export const INTEGER_REGEXP_ = new RegExp('^-?(0*)\\d{1,10}$');
 export const INTEGER_32_MIN = -2147483648;
 
 /**
- * For use in kyes, the maximum possible 32-bit integer.
+ * For use in keys, the maximum possible 32-bit integer.
  */
 export const INTEGER_32_MAX = 2147483647;
 
@@ -618,10 +618,21 @@ export const setTimeoutNonBlocking = function (
   time: number
 ): number | object {
   const timeout: number | object = setTimeout(fn, time);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  if (typeof timeout === 'object' && (timeout as any)['unref']) {
+  // Note: at the time of this comment, unrefTimer is under the unstable set of APIs. Run with --unstable to enable the API.
+  if (
+    typeof timeout === 'number' &&
+    // @ts-ignore Is only defined in Deno environments.
+    typeof Deno !== 'undefined' &&
+    // @ts-ignore Deno and unrefTimer are only defined in Deno environments.
+    Deno['unrefTimer']
+  ) {
+    // @ts-ignore Deno and unrefTimer are only defined in Deno environments.
+    Deno.unrefTimer(timeout);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } else if (typeof timeout === 'object' && (timeout as any)['unref']) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (timeout as any)['unref']();
   }
+
   return timeout;
 };

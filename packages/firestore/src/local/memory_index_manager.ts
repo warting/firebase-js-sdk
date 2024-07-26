@@ -66,6 +66,21 @@ export class MemoryIndexManager implements IndexManager {
     return PersistencePromise.resolve();
   }
 
+  deleteAllFieldIndexes(
+    transaction: PersistenceTransaction
+  ): PersistencePromise<void> {
+    // Field indices are not supported with memory persistence.
+    return PersistencePromise.resolve();
+  }
+
+  createTargetIndexes(
+    transaction: PersistenceTransaction,
+    target: Target
+  ): PersistencePromise<void> {
+    // Field indices are not supported with memory persistence.
+    return PersistencePromise.resolve();
+  }
+
   getDocumentsMatchingTarget(
     transaction: PersistenceTransaction,
     target: Target
@@ -100,6 +115,13 @@ export class MemoryIndexManager implements IndexManager {
   getMinOffset(
     transaction: PersistenceTransaction,
     target: Target
+  ): PersistencePromise<IndexOffset> {
+    return PersistencePromise.resolve(IndexOffset.min());
+  }
+
+  getMinOffsetFromCollectionGroup(
+    transaction: PersistenceTransaction,
+    collectionGroup: string
   ): PersistencePromise<IndexOffset> {
     return PersistencePromise.resolve(IndexOffset.min());
   }

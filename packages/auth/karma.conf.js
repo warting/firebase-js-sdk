@@ -16,16 +16,28 @@
  */
 
 const karmaBase = require('../../config/karma.base');
+const webpackBase = require('../../config/webpack.test');
 const { argv } = require('yargs');
 
 module.exports = function (config) {
   const karmaConfig = Object.assign({}, karmaBase, {
+    browsers: getTestBrowsers(argv),
     // files to load into karma
     files: getTestFiles(argv),
     // frameworks to use
     // available frameworks: https://npmjs.org/browse/keyword/karma-adapter
     frameworks: ['mocha'],
-
+    // undici is a fetch polyfill that test helpers call for Node tests, and browser tests should
+    // ignore its import to avoid compilation errors in those test helpers.
+    webpack: {
+      ...webpackBase,
+      resolve: {
+        ...webpackBase.resolve,
+        alias: {
+          'undici': false
+        }
+      }
+    },
     client: Object.assign({}, karmaBase.client, getClientConfig(argv))
   });
 
@@ -36,6 +48,12 @@ function getTestFiles(argv) {
   if (argv.unit) {
     return ['src/**/*.test.ts', 'test/helpers/**/*.test.ts'];
   } else if (argv.integration) {
+    if (argv.prodbackend) {
+      return [
+        'test/integration/flows/totp.test.ts',
+        'test/integration/flows/password_policy.test.ts'
+      ];
+    }
     return argv.local
       ? ['test/integration/flows/*.test.ts']
       : ['test/integration/flows/*!(local).test.ts'];
@@ -47,9 +65,18 @@ function getTestFiles(argv) {
       'src/**/*.test.ts',
       'test/helpers/**/*.test.ts',
       'test/integration/flows/anonymous.test.ts',
-      'test/integration/flows/email.test.ts'
+      'test/integration/flows/email.test.ts',
+      'test/integration/flows/firebaseserverapp.test.ts'
     ];
   }
+}
+
+function getTestBrowsers(argv) {
+  let browsers = ['ChromeHeadless'];
+  if (process.env?.BROWSERS && argv.unit) {
+    browsers = process.env?.BROWSERS?.split(',');
+  }
+  return browsers;
 }
 
 function getClientConfig(argv) {

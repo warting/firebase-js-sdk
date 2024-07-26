@@ -30,7 +30,8 @@ import {
   TEST_AUTH_DOMAIN,
   TEST_KEY,
   testAuth,
-  TestAuth
+  TestAuth,
+  FAKE_APP_CHECK_CONTROLLER
 } from '../../test/helpers/mock_auth';
 import { AuthEventManager } from '../core/auth/auth_event_manager';
 import { OAuthProvider } from '../core/providers/oauth';
@@ -58,7 +59,8 @@ describe('platform_browser/popup_redirect', () => {
 
   beforeEach(async () => {
     auth = await testAuth();
-    resolver = new (browserPopupRedirectResolver as SingletonInstantiator<PopupRedirectResolverInternal>)();
+    resolver =
+      new (browserPopupRedirectResolver as SingletonInstantiator<PopupRedirectResolverInternal>)();
 
     sinon.stub(validateOrigin, '_validateOrigin').returns(Promise.resolve());
     iframeSendStub = sinon.stub();
@@ -74,7 +76,7 @@ describe('platform_browser/popup_redirect', () => {
 
   function setGapiStub(): void {
     loadGapiStub.returns(
-      Promise.resolve(({
+      Promise.resolve({
         open: () =>
           Promise.resolve({
             register: (
@@ -83,7 +85,7 @@ describe('platform_browser/popup_redirect', () => {
             ) => (onIframeMessage = cb),
             send: iframeSendStub
           })
-      } as unknown) as gapi.iframes.Context)
+      } as unknown as gapi.iframes.Context)
     );
   }
 
@@ -92,7 +94,7 @@ describe('platform_browser/popup_redirect', () => {
   });
 
   context('#_openPopup', () => {
-    let popupUrl: string | undefined;
+    let popupUrl: string | URL | undefined;
     let provider: OAuthProvider;
     const event = AuthEventType.LINK_VIA_POPUP;
 
@@ -122,6 +124,49 @@ describe('platform_browser/popup_redirect', () => {
       expect(popupUrl).to.include(
         'customParameters=%7B%22foo%22%3A%22bar%22%7D'
       );
+    });
+
+    it('includes the App Check token in the url fragment if present', async () => {
+      await resolver._initialize(auth);
+      sinon
+        .stub(FAKE_APP_CHECK_CONTROLLER, 'getToken')
+        .returns(Promise.resolve({ token: 'fake-token' }));
+
+      await resolver._openPopup(auth, provider, event);
+
+      const matches = (popupUrl as string).match(/.*?#(.*)/);
+      expect(matches).not.to.be.null;
+      const fragment = matches![1];
+      expect(fragment).to.include('fac=fake-token');
+    });
+
+    it('does not add the App Check token in the url fragment if none returned', async () => {
+      await resolver._initialize(auth);
+      // Redundant, already set in mock_auth.ts but adding here for clarity
+      sinon
+        .stub(FAKE_APP_CHECK_CONTROLLER, 'getToken')
+        .returns(Promise.resolve({ token: '' }));
+
+      await resolver._openPopup(auth, provider, event);
+
+      const matches = (popupUrl as string).match(/.*?#(.*)/);
+      // The '#' character will not be included when the url fragment is not attached,
+      // so the url will not match the pattern
+      expect(matches).to.be.null;
+    });
+
+    it('does not add the App Check token in the url fragment if controller unavailable', async () => {
+      await resolver._initialize(auth);
+      sinon
+        .stub(FAKE_APP_CHECK_CONTROLLER, 'getToken')
+        .returns(undefined as any);
+
+      await resolver._openPopup(auth, provider, event);
+
+      const matches = (popupUrl as string).match(/.*?#(.*)/);
+      // The '#' character will not be included when the url fragment is not attached,
+      // so the url will not match the pattern
+      expect(matches).to.be.null;
     });
 
     it('throws an error if apiKey is unspecified', async () => {
@@ -156,8 +201,10 @@ describe('platform_browser/popup_redirect', () => {
       // eslint-disable-next-line @typescript-eslint/no-floating-promises
       resolver._openRedirect(auth, provider, event);
 
-      // Delay one tick
-      await Promise.resolve();
+      // Wait a bit so the _openRedirect() call completes
+      await new Promise((resolve): void => {
+        setTimeout(resolve, 100);
+      });
 
       expect(newWindowLocation).to.include(
         `https://${TEST_AUTH_DOMAIN}/__/auth/handler`
@@ -174,6 +221,67 @@ describe('platform_browser/popup_redirect', () => {
       expect(newWindowLocation).to.include(
         'customParameters=%7B%22foo%22%3A%22bar%22%7D'
       );
+    });
+
+    it('includes the App Check token in the url fragment if present', async () => {
+      sinon
+        .stub(FAKE_APP_CHECK_CONTROLLER, 'getToken')
+        .returns(Promise.resolve({ token: 'fake-token' }));
+
+      // This promise will never resolve on purpose
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises
+      resolver._openRedirect(auth, provider, event);
+
+      // Wait a bit so the _openRedirect() call completes
+      await new Promise((resolve): void => {
+        setTimeout(resolve, 100);
+      });
+
+      const matches = newWindowLocation.match(/.*?#(.*)/);
+      expect(matches).not.to.be.null;
+      const fragment = matches![1];
+      expect(fragment).to.include('fac=fake-token');
+    });
+
+    it('does not add the App Check token in the url fragment if none returned', async () => {
+      // Redundant, already set in mock_auth.ts but adding here for clarity
+      sinon
+        .stub(FAKE_APP_CHECK_CONTROLLER, 'getToken')
+        .returns(Promise.resolve({ token: '' }));
+
+      // This promise will never resolve on purpose
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises
+      resolver._openRedirect(auth, provider, event);
+
+      // Wait a bit so the _openRedirect() call completes
+      await new Promise((resolve): void => {
+        setTimeout(resolve, 100);
+      });
+
+      const matches = newWindowLocation.match(/.*?#(.*)/);
+      // The '#' character will not be included when the url fragment is not attached,
+      // so the url will not match the pattern
+      expect(matches).to.be.null;
+    });
+
+    it('does not add the App Check token in the url fragment if controller unavailable', async () => {
+      sinon
+        .stub(FAKE_APP_CHECK_CONTROLLER, 'getToken')
+        .returns(undefined as any);
+
+      // This promise will never resolve on purpose
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises
+      resolver._openRedirect(auth, provider, event);
+
+      // Wait a bit so the _openRedirect() call completes
+      await new Promise((resolve): void => {
+        setTimeout(resolve, 100);
+      });
+
+      const matches = newWindowLocation.match(/.*?#(.*)/);
+      // The '#' character will not be included when the url fragment is not attached,
+      // so the url will not match the pattern
+      expect(matches).to.be.null;
     });
 
     it('throws an error if authDomain is unspecified', async () => {
@@ -250,7 +358,7 @@ describe('platform_browser/popup_redirect', () => {
       const error = new Error();
       loadGapiStub.rejects(error);
       await expect(resolver._initialize(auth)).to.be.rejectedWith(error);
-      setGapiStub();  // Reset the gapi load stub
+      setGapiStub(); // Reset the gapi load stub
       await expect(resolver._initialize(auth)).not.to.be.rejected;
     });
 
@@ -277,7 +385,7 @@ describe('platform_browser/popup_redirect', () => {
       expect(() =>
         onIframeMessage({
           type: 'authEvent',
-          authEvent: (null as unknown) as AuthEvent
+          authEvent: null as unknown as AuthEvent
         })
       ).to.throw(FirebaseError, 'auth/invalid-auth-event');
     });
@@ -285,9 +393,10 @@ describe('platform_browser/popup_redirect', () => {
     it('errors with invalid event if everything is null', async () => {
       const manager = (await resolver._initialize(auth)) as AuthEventManager;
       sinon.stub(manager, 'onEvent').returns(true);
-      expect(() =>
-        onIframeMessage((null as unknown) as GapiAuthEvent)
-      ).to.throw(FirebaseError, 'auth/invalid-auth-event');
+      expect(() => onIframeMessage(null as unknown as GapiAuthEvent)).to.throw(
+        FirebaseError,
+        'auth/invalid-auth-event'
+      );
     });
 
     it('returns error to the iframe if the event was not handled', async () => {

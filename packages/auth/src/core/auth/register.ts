@@ -19,7 +19,7 @@ import { _registerComponent, registerVersion } from '@firebase/app';
 import {
   Component,
   ComponentType,
-  InstantiationMode,
+  InstantiationMode
 } from '@firebase/component';
 
 import { name, version } from '../../../package.json';
@@ -49,6 +49,8 @@ function getVersionForPlatform(
       return 'webworker';
     case ClientPlatform.CORDOVA:
       return 'cordova';
+    case ClientPlatform.WEB_EXTENSION:
+      return 'web-extension';
     default:
       return undefined;
   }
@@ -61,33 +63,37 @@ export function registerAuth(clientPlatform: ClientPlatform): void {
       _ComponentName.AUTH,
       (container, { options: deps }: { options?: Dependencies }) => {
         const app = container.getProvider('app').getImmediate()!;
-        const heartbeatServiceProvider = container.getProvider<'heartbeat'>('heartbeat');
+        const heartbeatServiceProvider =
+          container.getProvider<'heartbeat'>('heartbeat');
+        const appCheckServiceProvider =
+          container.getProvider<'app-check-internal'>('app-check-internal');
         const { apiKey, authDomain } = app.options;
-        return ((app, heartbeatServiceProvider) => {
-          _assert(
-            apiKey && !apiKey.includes(':'),
-            AuthErrorCode.INVALID_API_KEY,
-            { appName: app.name }
-          );
-          // Auth domain is optional if IdP sign in isn't being used
-          _assert(!authDomain?.includes(':'), AuthErrorCode.ARGUMENT_ERROR, {
-            appName: app.name
-          });
-          const config: ConfigInternal = {
-            apiKey,
-            authDomain,
-            clientPlatform,
-            apiHost: DefaultConfig.API_HOST,
-            tokenApiHost: DefaultConfig.TOKEN_API_HOST,
-            apiScheme: DefaultConfig.API_SCHEME,
-            sdkClientVersion: _getClientVersion(clientPlatform)
-          };
 
-          const authInstance = new AuthImpl(app, heartbeatServiceProvider, config);
-          _initializeAuthInstance(authInstance, deps);
+        _assert(
+          apiKey && !apiKey.includes(':'),
+          AuthErrorCode.INVALID_API_KEY,
+          { appName: app.name }
+        );
 
-          return authInstance;
-        })(app, heartbeatServiceProvider);
+        const config: ConfigInternal = {
+          apiKey,
+          authDomain,
+          clientPlatform,
+          apiHost: DefaultConfig.API_HOST,
+          tokenApiHost: DefaultConfig.TOKEN_API_HOST,
+          apiScheme: DefaultConfig.API_SCHEME,
+          sdkClientVersion: _getClientVersion(clientPlatform)
+        };
+
+        const authInstance = new AuthImpl(
+          app,
+          heartbeatServiceProvider,
+          appCheckServiceProvider,
+          config
+        );
+        _initializeAuthInstance(authInstance, deps);
+
+        return authInstance;
       },
       ComponentType.PUBLIC
     )

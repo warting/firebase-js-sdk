@@ -22,35 +22,46 @@ export const enum AppError {
   BAD_APP_NAME = 'bad-app-name',
   DUPLICATE_APP = 'duplicate-app',
   APP_DELETED = 'app-deleted',
+  SERVER_APP_DELETED = 'server-app-deleted',
+  NO_OPTIONS = 'no-options',
   INVALID_APP_ARGUMENT = 'invalid-app-argument',
   INVALID_LOG_ARGUMENT = 'invalid-log-argument',
-  STORAGE_OPEN = 'storage-open',
-  STORAGE_GET = 'storage-get',
-  STORAGE_WRITE = 'storage-set',
-  STORAGE_DELETE = 'storage-delete'
+  IDB_OPEN = 'idb-open',
+  IDB_GET = 'idb-get',
+  IDB_WRITE = 'idb-set',
+  IDB_DELETE = 'idb-delete',
+  FINALIZATION_REGISTRY_NOT_SUPPORTED = 'finalization-registry-not-supported',
+  INVALID_SERVER_APP_ENVIRONMENT = 'invalid-server-app-environment'
 }
 
 const ERRORS: ErrorMap<AppError> = {
   [AppError.NO_APP]:
     "No Firebase App '{$appName}' has been created - " +
-    'call Firebase App.initializeApp()',
-  [AppError.BAD_APP_NAME]: "Illegal App name: '{$appName}",
+    'call initializeApp() first',
+  [AppError.BAD_APP_NAME]: "Illegal App name: '{$appName}'",
   [AppError.DUPLICATE_APP]:
     "Firebase App named '{$appName}' already exists with different options or config",
   [AppError.APP_DELETED]: "Firebase App named '{$appName}' already deleted",
+  [AppError.SERVER_APP_DELETED]: 'Firebase Server App has been deleted',
+  [AppError.NO_OPTIONS]:
+    'Need to provide options, when not being deployed to hosting via source.',
   [AppError.INVALID_APP_ARGUMENT]:
     'firebase.{$appName}() takes either no argument or a ' +
     'Firebase App instance.',
   [AppError.INVALID_LOG_ARGUMENT]:
     'First argument to `onLog` must be null or a function.',
-  [AppError.STORAGE_OPEN]:
-    'Error thrown when opening storage. Original error: {$originalErrorMessage}.',
-  [AppError.STORAGE_GET]:
-    'Error thrown when reading from storage. Original error: {$originalErrorMessage}.',
-  [AppError.STORAGE_WRITE]:
-    'Error thrown when writing to storage. Original error: {$originalErrorMessage}.',
-  [AppError.STORAGE_DELETE]:
-    'Error thrown when deleting from storage. Original error: {$originalErrorMessage}.'
+  [AppError.IDB_OPEN]:
+    'Error thrown when opening IndexedDB. Original error: {$originalErrorMessage}.',
+  [AppError.IDB_GET]:
+    'Error thrown when reading from IndexedDB. Original error: {$originalErrorMessage}.',
+  [AppError.IDB_WRITE]:
+    'Error thrown when writing to IndexedDB. Original error: {$originalErrorMessage}.',
+  [AppError.IDB_DELETE]:
+    'Error thrown when deleting from IndexedDB. Original error: {$originalErrorMessage}.',
+  [AppError.FINALIZATION_REGISTRY_NOT_SUPPORTED]:
+    'FirebaseServerApp deleteOnDeref field defined but the JS runtime does not support FinalizationRegistry.',
+  [AppError.INVALID_SERVER_APP_ENVIRONMENT]:
+    'FirebaseServerApp is not for use in browser environments.'
 };
 
 interface ErrorParams {
@@ -59,10 +70,11 @@ interface ErrorParams {
   [AppError.DUPLICATE_APP]: { appName: string };
   [AppError.APP_DELETED]: { appName: string };
   [AppError.INVALID_APP_ARGUMENT]: { appName: string };
-  [AppError.STORAGE_OPEN]: { originalErrorMessage?: string };
-  [AppError.STORAGE_GET]: { originalErrorMessage?: string };
-  [AppError.STORAGE_WRITE]: { originalErrorMessage?: string };
-  [AppError.STORAGE_DELETE]: { originalErrorMessage?: string };
+  [AppError.IDB_OPEN]: { originalErrorMessage?: string };
+  [AppError.IDB_GET]: { originalErrorMessage?: string };
+  [AppError.IDB_WRITE]: { originalErrorMessage?: string };
+  [AppError.IDB_DELETE]: { originalErrorMessage?: string };
+  [AppError.FINALIZATION_REGISTRY_NOT_SUPPORTED]: { appName?: string };
 }
 
 export const ERROR_FACTORY = new ErrorFactory<AppError, ErrorParams>(

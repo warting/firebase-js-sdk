@@ -60,6 +60,11 @@ function propagateNotificationPayload(
   if (!!image) {
     payload.notification!.image = image;
   }
+
+  const icon = messagePayloadInternal.notification!.icon;
+  if (!!icon) {
+    payload.notification!.icon = icon;
+  }
 }
 
 function propagateDataPayload(
@@ -77,19 +82,26 @@ function propagateFcmOptions(
   payload: MessagePayload,
   messagePayloadInternal: MessagePayloadInternal
 ): void {
-  if (!messagePayloadInternal.fcmOptions) {
+  // fcmOptions.link value is written into notification.click_action. see more in b/232072111
+  if (
+    !messagePayloadInternal.fcmOptions &&
+    !messagePayloadInternal.notification?.click_action
+  ) {
     return;
   }
 
   payload.fcmOptions = {};
 
-  const link = messagePayloadInternal.fcmOptions!.link;
+  const link =
+    messagePayloadInternal.fcmOptions?.link ??
+    messagePayloadInternal.notification?.click_action;
+
   if (!!link) {
     payload.fcmOptions!.link = link;
   }
 
   // eslint-disable-next-line camelcase
-  const analyticsLabel = messagePayloadInternal.fcmOptions!.analytics_label;
+  const analyticsLabel = messagePayloadInternal.fcmOptions?.analytics_label;
   if (!!analyticsLabel) {
     payload.fcmOptions!.analyticsLabel = analyticsLabel;
   }

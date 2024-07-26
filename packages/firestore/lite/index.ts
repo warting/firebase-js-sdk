@@ -27,6 +27,25 @@
 import { registerFirestore } from './register';
 registerFirestore();
 
+export {
+  aggregateQuerySnapshotEqual,
+  getCount,
+  getAggregate,
+  count,
+  sum,
+  average,
+  aggregateFieldEqual
+} from '../src/lite-api/aggregate';
+
+export {
+  AggregateField,
+  AggregateFieldType,
+  AggregateSpec,
+  AggregateSpecData,
+  AggregateQuerySnapshot,
+  AggregateType
+} from '../src/lite-api/aggregate_types';
+
 export { FirestoreSettings as Settings } from '../src/lite-api/settings';
 
 export {
@@ -55,19 +74,29 @@ export {
 } from '../src/lite-api/reference';
 
 export {
+  and,
   endAt,
   endBefore,
   startAt,
   startAfter,
   limit,
   limitToLast,
-  orderBy,
-  OrderByDirection,
   where,
-  WhereFilterOp,
+  or,
+  orderBy,
   query,
   QueryConstraint,
-  QueryConstraintType
+  QueryConstraintType,
+  QueryCompositeFilterConstraint,
+  QueryFilterConstraint,
+  QueryFieldFilterConstraint,
+  QueryOrderByConstraint,
+  QueryLimitConstraint,
+  QueryNonFilterConstraint,
+  QueryStartAtConstraint,
+  QueryEndAtConstraint,
+  OrderByDirection,
+  WhereFilterOp
 } from '../src/lite-api/query';
 
 export {
@@ -87,10 +116,10 @@ export {
   UnionToIntersection
 } from '../src/lite-api/types';
 
-// TOOD(firestorelite): Add tests when Queries are usable
+// TODO(firestorelite): Add tests when Queries are usable
 export { FieldPath, documentId } from '../src/lite-api/field_path';
 
-// TOOD(firestorelite): Add tests when setDoc() is available
+// TODO(firestorelite): Add tests when setDoc() is available
 export { FieldValue } from '../src/lite-api/field_value';
 
 export {
@@ -110,6 +139,8 @@ export {
 } from '../src/lite-api/snapshot';
 
 export { WriteBatch, writeBatch } from '../src/lite-api/write_batch';
+
+export { TransactionOptions } from '../src/lite-api/transaction_options';
 
 export { Transaction, runTransaction } from '../src/lite-api/transaction';
 

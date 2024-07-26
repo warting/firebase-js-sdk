@@ -47,6 +47,12 @@ export interface HttpsCallableOptions {
    * Default is 70000.
    */
   timeout?: number;
+  /**
+   * If set to true, uses limited-use App Check token for callable function requests from this
+   * instance of {@link Functions}. You must use limited-use tokens to call functions with
+   * replay protection enabled. By default, this is false.
+   */
+  limitedUseAppCheckTokens?: boolean;
 }
 
 /**
@@ -71,6 +77,30 @@ export interface Functions {
    */
   customDomain: string | null;
 }
+
+/**
+ * Functions error code string appended after "functions/" product prefix.
+ * See {@link FunctionsErrorCode} for full documentation of codes.
+ * @public
+ */
+export type FunctionsErrorCodeCore =
+  | 'ok'
+  | 'cancelled'
+  | 'unknown'
+  | 'invalid-argument'
+  | 'deadline-exceeded'
+  | 'not-found'
+  | 'already-exists'
+  | 'permission-denied'
+  | 'resource-exhausted'
+  | 'failed-precondition'
+  | 'aborted'
+  | 'out-of-range'
+  | 'unimplemented'
+  | 'internal'
+  | 'unavailable'
+  | 'data-loss'
+  | 'unauthenticated';
 
 /**
  * The set of Firebase Functions status codes. The codes are the same at the
@@ -112,24 +142,7 @@ export interface Functions {
  *   credentials for the operation.
  * @public
  */
-export type FunctionsErrorCode =
-  | 'ok'
-  | 'cancelled'
-  | 'unknown'
-  | 'invalid-argument'
-  | 'deadline-exceeded'
-  | 'not-found'
-  | 'already-exists'
-  | 'permission-denied'
-  | 'resource-exhausted'
-  | 'failed-precondition'
-  | 'aborted'
-  | 'out-of-range'
-  | 'unimplemented'
-  | 'internal'
-  | 'unavailable'
-  | 'data-loss'
-  | 'unauthenticated';
+export type FunctionsErrorCode = `functions/${FunctionsErrorCodeCore}`;
 
 /**
  * An error returned by the Firebase Functions client SDK.

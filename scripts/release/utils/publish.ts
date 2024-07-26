@@ -37,45 +37,84 @@ export async function publish(releaseType: string) {
   });
 }
 
-export async function publishInCI(updatedPkgs: string[], npmTag: string) {
-  const taskArray = await Promise.all(
-    updatedPkgs.map(async pkg => {
-      const path = await mapPkgNameToPkgPath(pkg);
+export async function publishInCI(
+  updatedPkgs: string[],
+  npmTag: string,
+  dryRun: boolean
+) {
+  const taskArray = [];
+  const tags = [];
+  for (const pkg of updatedPkgs) {
+    const path = await mapPkgNameToPkgPath(pkg);
 
-      /**
-       * Can't require here because we have a cached version of the required JSON
-       * in memory and it doesn't contain the updates
-       */
-      const { version, private: isPrivate } = JSON.parse(
-        await readFile(`${path}/package.json`, 'utf8')
-      );
+    /**
+     * Can't require here because we have a cached version of the required JSON
+     * in memory and it doesn't contain the updates
+     */
+    const { version, private: isPrivate } = JSON.parse(
+      await readFile(`${path}/package.json`, 'utf8')
+    );
 
-      /**
-       * Skip private packages
-       */
-      if (isPrivate) {
-        return {
-          title: `Skipping private package: ${pkg}.`,
-          task: () => {}
-        };
+    /**
+     * Skip private packages
+     */
+    if (isPrivate) {
+      console.log(`Skipping private package: ${pkg}.`);
+      continue;
+    }
+
+    /**
+     * Skip if this version has already been published.
+     */
+    try {
+      const { stdout: npmVersion } = await exec(`npm info ${pkg} version`);
+      if (version === npmVersion.trim()) {
+        console.log(
+          `Skipping publish of ${pkg} - version ${version} is already published`
+        );
+        continue;
       }
+    } catch (e) {
+      const versionParts = version.split('-');
+      if (versionParts[0] !== '0.0.1') {
+        // 404 from NPM indicates the package doesn't exist there.
+        console.log(
+          `Skipping pkg: ${pkg} - it has never been published to NPM.`
+        );
+        continue;
+      }
+    }
 
-      return {
-        title: `📦  ${pkg}@${version}`,
-        task: () => publishPackageInCI(pkg, npmTag)
-      };
-    })
-  );
+    const tag = `${pkg}@${version}`;
+    tags.push(tag);
+    taskArray.push({
+      title: `📦  ${tag}`,
+      task: () => publishPackageInCI(pkg, npmTag, dryRun)
+    });
+  }
+
   const tasks = new Listr(taskArray, {
     concurrent: false,
     exitOnError: false
   });
 
   console.log('\r\nPublishing Packages to NPM:');
-  return tasks.run();
+  await tasks.run();
+
+  // Create git tags.
+  for (const tag of tags) {
+    await exec(`git tag ${tag}`);
+    console.log(`Added git tag ${tag}.`);
+  }
 }
 
-async function publishPackageInCI(pkg: string, npmTag: string) {
+async function publishPackageInCI(
+  pkg: string,
+  npmTag: string,
+  dryRun: boolean
+) {
+  let stdoutText = '';
+  let stderrText = '';
   try {
     const path = await mapPkgNameToPkgPath(pkg);
 
@@ -92,15 +131,44 @@ async function publishPackageInCI(pkg: string, npmTag: string) {
       'https://wombat-dressing-room.appspot.com'
     ];
 
+    if (dryRun) {
+      args.push('--dry-run');
+    }
+
+    if (process.env.VERBOSE_NPM_LOGGING === 'true') {
+      args.push('--verbose');
+    }
+
     // Write proxy registry token for this package to .npmrc.
     await exec(
       `echo "//wombat-dressing-room.appspot.com/:_authToken=${
         process.env[getEnvTokenKey(pkg)]
       }" >> ~/.npmrc`
     );
-
-    return spawn('npm', args, { cwd: path });
+    const spawnPromise = spawn('npm', args, { cwd: path });
+    const childProcess = spawnPromise.childProcess;
+    // These logs can be very verbose. Only print them if there's
+    // an error.
+    childProcess.stdout?.on('data', function (data) {
+      stdoutText += data.toString();
+    });
+    childProcess.stderr?.on('data', function (data) {
+      stderrText += data.toString();
+    });
+    await spawnPromise;
+    if (process.env.VERBOSE_NPM_LOGGING === 'true') {
+      console.log(`stdout for ${pkg} publish:`);
+      console.log(stdoutText);
+      console.log(`stderr for ${pkg} publish:`);
+      console.error(stderrText);
+    }
+    return spawnPromise;
   } catch (err) {
+    console.log(`Error publishing ${pkg}`);
+    console.log(`stdout for ${pkg} publish:`);
+    console.log(stdoutText);
+    console.log(`stderr for ${pkg} publish:`);
+    console.error(stderrText);
     throw err;
   }
 }

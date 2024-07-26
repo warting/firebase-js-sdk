@@ -17,7 +17,12 @@
 
 import { firestoreClientTransaction } from '../core/firestore_client';
 import { Transaction as InternalTransaction } from '../core/transaction';
-import { DocumentReference } from '../lite-api/reference';
+import {
+  TransactionOptions as TransactionOptionsInternal,
+  DEFAULT_TRANSACTION_OPTIONS,
+  validateTransactionOptions
+} from '../core/transaction_options';
+import { DocumentData, DocumentReference } from '../lite-api/reference';
 import { Transaction as LiteTransaction } from '../lite-api/transaction';
 import { validateReference } from '../lite-api/write_batch';
 import { cast } from '../util/input_validation';
@@ -25,6 +30,7 @@ import { cast } from '../util/input_validation';
 import { ensureFirestoreConfigured, Firestore } from './database';
 import { ExpUserDataWriter } from './reference_impl';
 import { DocumentSnapshot, SnapshotMetadata } from './snapshot';
+import { TransactionOptions } from './transaction_options';
 
 /**
  * A reference to a transaction.
@@ -51,8 +57,10 @@ export class Transaction extends LiteTransaction {
    * @param documentRef - A reference to the document to be read.
    * @returns A `DocumentSnapshot` with the read data.
    */
-  get<T>(documentRef: DocumentReference<T>): Promise<DocumentSnapshot<T>> {
-    const ref = validateReference<T>(documentRef, this._firestore);
+  get<AppModelType, DbModelType extends DocumentData>(
+    documentRef: DocumentReference<AppModelType, DbModelType>
+  ): Promise<DocumentSnapshot<AppModelType, DbModelType>> {
+    const ref = validateReference(documentRef, this._firestore);
     const userDataWriter = new ExpUserDataWriter(this._firestore);
     return super
       .get(documentRef)
@@ -85,6 +93,8 @@ export class Transaction extends LiteTransaction {
  * transaction against.
  * @param updateFunction - The function to execute within the transaction
  * context.
+ * @param options - An options object to configure maximum number of attempts to
+ * commit.
  * @returns If the transaction completed successfully or was explicitly aborted
  * (the `updateFunction` returned a failed promise), the promise returned by the
  * `updateFunction `is returned here. Otherwise, if the transaction failed, a
@@ -92,11 +102,20 @@ export class Transaction extends LiteTransaction {
  */
 export function runTransaction<T>(
   firestore: Firestore,
-  updateFunction: (transaction: Transaction) => Promise<T>
+  updateFunction: (transaction: Transaction) => Promise<T>,
+  options?: TransactionOptions
 ): Promise<T> {
   firestore = cast(firestore, Firestore);
+  const optionsWithDefaults: TransactionOptionsInternal = {
+    ...DEFAULT_TRANSACTION_OPTIONS,
+    ...options
+  };
+  validateTransactionOptions(optionsWithDefaults);
   const client = ensureFirestoreConfigured(firestore);
-  return firestoreClientTransaction(client, internalTransaction =>
-    updateFunction(new Transaction(firestore, internalTransaction))
+  return firestoreClientTransaction(
+    client,
+    internalTransaction =>
+      updateFunction(new Transaction(firestore, internalTransaction)),
+    optionsWithDefaults
   );
 }

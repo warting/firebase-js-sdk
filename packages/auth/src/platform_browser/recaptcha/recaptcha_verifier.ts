@@ -44,6 +44,9 @@ type TokenCallback = (token: string) => void;
 /**
  * An {@link https://www.google.com/recaptcha/ | reCAPTCHA}-based application verifier.
  *
+ * @remarks
+ * `RecaptchaVerifier` does not work in a Node.js environment.
+ *
  * @public
  */
 export class RecaptchaVerifier implements ApplicationVerifierInternal {
@@ -67,6 +70,7 @@ export class RecaptchaVerifier implements ApplicationVerifierInternal {
   private recaptcha: Recaptcha | null = null;
 
   /**
+   * @param authExtern - The corresponding Firebase {@link Auth} instance.
    *
    * @param containerOrId - The reCAPTCHA container parameter.
    *
@@ -83,19 +87,13 @@ export class RecaptchaVerifier implements ApplicationVerifierInternal {
    * the sitekey. Firebase Auth backend provisions a reCAPTCHA for each project and will
    * configure this upon rendering. For an invisible reCAPTCHA, a size key must have the value
    * 'invisible'.
-   *
-   * @param authExtern - The corresponding Firebase {@link Auth} instance.
-   *
-   * @remarks
-   * If none is provided, the default Firebase {@link Auth} instance is used. A Firebase {@link Auth} instance
-   * must be initialized with an API key, otherwise an error will be thrown.
    */
   constructor(
+    authExtern: Auth,
     containerOrId: HTMLElement | string,
     private readonly parameters: RecaptchaParameters = {
       ...DEFAULT_PARAMS
-    },
-    authExtern: Auth
+    }
   ) {
     this.auth = _castAuth(authExtern);
     this.isInvisible = this.parameters.size === 'invisible';

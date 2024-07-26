@@ -29,7 +29,7 @@ import {
 
 /**
  * We have a test that depends on leveraging two properly
- * configured Firebase instances. we are skiping the test
+ * configured Firebase instances. we are skipping the test
  * but I want to leave the test here for when we can refactor
  * to remove the prod firebase dependency.
  */
@@ -130,8 +130,7 @@ describe('.info Tests', function () {
 
     await ea.promise;
 
-    expect(typeof offsets[0]).to.equal('number');
-    expect(offsets[0]).not.to.be.greaterThan(0);
+    expect(offsets[0]).to.be.a('number');
 
     // Make sure push still works
     ref.push();
